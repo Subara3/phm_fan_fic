@@ -6,30 +6,34 @@
 <title>5本足のいきもの トランポリン</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
-canvas { border: 2px solid #444; image-rendering: pixelated; cursor: none; }
-.info { color: #888; font-family: monospace; font-size: 13px; margin-top: 6px; }
-.hud { color: #fff; font-family: monospace; font-size: 16px; margin-bottom: 4px; }
+body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { border: 2px solid #444; cursor: none; }
+.info { color: #888; font-size: 13px; margin-top: 6px; }
+.hud { color: #fff; font-family: monospace; font-size: 16px; margin-bottom: 4px; letter-spacing: 1px; }
 </style>
 </head>
 <body>
 <div class="hud" id="hud">SEATED: 0 / 30</div>
-<canvas id="game" width="400" height="300"></canvas>
-<div class="info">← → or mouse to move trampoline</div>
+<canvas id="game"></canvas>
+<div class="info">← → or mouse to move organ</div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = 400, H = 300;
+const PIX = 2;
+canvas.width = W * PIX;
+canvas.height = H * PIX;
 const SCALE = Math.min((window.innerWidth - 40) / W, (window.innerHeight - 100) / H, 3);
 canvas.style.width = (W * SCALE) + 'px';
 canvas.style.height = (H * SCALE) + 'px';
+ctx.scale(PIX, PIX);
 
 const TOTAL = 30;
 const COLS = 10, ROWS = 3;
 const SEAT_ZONE_Y = 8;
 const SEAT_W = 14, SEAT_H = 16;
 const SEAT_MARGIN_X = (W - COLS * SEAT_W) / 2;
-const TRAMPOLINE_Y = H - 22;
+const ORGAN_Y = H - 22;
 const SPAWN_Y = 100;
 
 let students = [];
@@ -41,7 +45,101 @@ let cleared = false;
 let mouseX = W / 2;
 let keys = {};
 
+let clearPhase = 0;
+let ripples = [];
+let celebNotes = [];
+let teacherX = W + 30;
+let canRestart = false;
+
 const trampoline = { x: W / 2, w: 50, speedBoost: 0, bounceBoost: 0 };
+
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playSE(type) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const g = audioCtx.createGain();
+  g.connect(audioCtx.destination);
+
+  if (type === 'bounce') {
+    g.gain.setValueAtTime(0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    const o = audioCtx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(600, t);
+    o.frequency.exponentialRampToValueAtTime(1200, t + 0.08);
+    o.frequency.exponentialRampToValueAtTime(800, t + 0.15);
+    o.connect(g);
+    o.start(t); o.stop(t + 0.15);
+  } else if (type === 'seat') {
+    g.gain.setValueAtTime(0.1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    [523, 659, 784].forEach((freq, i) => {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      const sg = audioCtx.createGain();
+      sg.gain.setValueAtTime(0, t + i * 0.06);
+      sg.gain.linearRampToValueAtTime(0.08, t + i * 0.06 + 0.02);
+      sg.gain.exponentialRampToValueAtTime(0.001, t + i * 0.06 + 0.2);
+      o.connect(sg); sg.connect(audioCtx.destination);
+      o.start(t + i * 0.06); o.stop(t + i * 0.06 + 0.2);
+    });
+  } else if (type === 'item') {
+    g.gain.setValueAtTime(0.1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    const o = audioCtx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(880, t);
+    o.frequency.exponentialRampToValueAtTime(1760, t + 0.1);
+    o.connect(g);
+    o.start(t); o.stop(t + 0.2);
+  } else if (type === 'victory') {
+    [523, 659, 784, 1047].forEach((freq, i) => {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine';
+      const sg = audioCtx.createGain();
+      sg.gain.setValueAtTime(0, t + i * 0.12);
+      sg.gain.linearRampToValueAtTime(0.1, t + i * 0.12 + 0.03);
+      sg.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.5);
+      o.frequency.value = freq;
+      o.connect(sg); sg.connect(audioCtx.destination);
+      o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.5);
+    });
+  } else if (type === 'organ') {
+    const freqs = [262, 330, 392, 523, 330, 392, 523, 659];
+    freqs.forEach((freq, i) => {
+      const o = audioCtx.createOscillator();
+      o.type = 'sine';
+      const o2 = audioCtx.createOscillator();
+      o2.type = 'sine';
+      o2.frequency.value = freq * 2;
+      const sg = audioCtx.createGain();
+      sg.gain.setValueAtTime(0, t + i * 0.25);
+      sg.gain.linearRampToValueAtTime(0.06, t + i * 0.25 + 0.05);
+      sg.gain.exponentialRampToValueAtTime(0.001, t + i * 0.25 + 0.4);
+      const sg2 = audioCtx.createGain();
+      sg2.gain.setValueAtTime(0, t + i * 0.25);
+      sg2.gain.linearRampToValueAtTime(0.02, t + i * 0.25 + 0.05);
+      sg2.gain.exponentialRampToValueAtTime(0.001, t + i * 0.25 + 0.35);
+      o.frequency.value = freq;
+      o.connect(sg); sg.connect(audioCtx.destination);
+      o2.connect(sg2); sg2.connect(audioCtx.destination);
+      o.start(t + i * 0.25); o.stop(t + i * 0.25 + 0.4);
+      o2.start(t + i * 0.25); o2.stop(t + i * 0.25 + 0.35);
+    });
+  }
+}
+
+const NOTE_DEFS = [
+  { type: 'speed',  symbol: '\u266A', color: '#88ccff' },
+  { type: 'bounce', symbol: '\u266C', color: '#88ff88' },
+  { type: 'wide',   symbol: '\u266B', color: '#ff88cc' }
+];
 
 function hslToRgb(h, s, l) {
   s /= 100; l /= 100;
@@ -61,20 +159,15 @@ function generateStudents() {
     const lit = 75 - weight * 25;
     const [r, g, b] = hslToRgb(hue, sat, lit);
     students.push({
-      weight,
-      sizeScale,
+      weight, sizeScale, hue,
       color: `rgb(${r},${g},${b})`,
-      noteColor: `rgb(${Math.min(255, r + 40)},${Math.min(255, g + 40)},${Math.min(255, b + 40)})`,
-      hue,
+      noteColor: `rgb(${Math.min(255,r+40)},${Math.min(255,g+40)},${Math.min(255,b+40)})`,
       gravity: 0.05 + weight * 0.06,
       bouncePower: 8.5 - weight * 1.5,
-      seated: false,
-      seatTime: 0,
-      noteDropped: false,
+      seated: false, seatTime: 0, noteDropped: false,
       x: 0, y: 0, vx: 0, vy: 0,
       legPhase: Math.random() * 6,
-      rotation: 0,
-      active: false
+      rotation: 0, active: false
     });
   }
 }
@@ -86,8 +179,7 @@ function initSeats() {
       seats.push({
         x: SEAT_MARGIN_X + c * SEAT_W + SEAT_W / 2,
         y: SEAT_ZONE_Y + r * SEAT_H + SEAT_H / 2,
-        occupied: false,
-        student: null
+        occupied: false, student: null
       });
     }
   }
@@ -106,16 +198,12 @@ function spawnAll() {
 }
 
 function spawnNote(seat, student) {
-  const types = ['speed', 'bounce', 'wide'];
-  const type = types[Math.floor(Math.random() * types.length)];
+  const def = NOTE_DEFS[Math.floor(Math.random() * NOTE_DEFS.length)];
   notes.push({
-    x: seat.x,
-    y: seat.y + 10,
+    x: seat.x, y: seat.y + 10,
     vy: 0.6 + Math.random() * 0.4,
-    type,
-    color: student.noteColor,
-    alive: true,
-    age: 0
+    type: def.type, symbol: def.symbol, color: def.color,
+    alive: true, age: 0
   });
 }
 
@@ -125,6 +213,11 @@ function restart() {
   notes = [];
   seatedCount = 0;
   cleared = false;
+  clearPhase = 0;
+  ripples = [];
+  celebNotes = [];
+  teacherX = W + 30;
+  canRestart = false;
   trampoline.speedBoost = 0;
   trampoline.bounceBoost = 0;
   trampoline.w = 50;
@@ -136,14 +229,11 @@ function drawCreature(x, y, phase, rot, color, scale) {
   ctx.translate(Math.round(x), Math.round(y));
   ctx.rotate(rot);
   ctx.scale(scale, scale);
-
   ctx.fillStyle = color;
   ctx.fillRect(-4, -3, 8, 6);
   ctx.fillRect(-3, -4, 6, 8);
-
   ctx.fillStyle = '#000';
   ctx.fillRect(1, -2, 2, 2);
-
   const legAngles = [-2.2, -1.1, 0, 1.1, 2.2];
   for (let i = 0; i < 5; i++) {
     const swing = Math.sin(phase + i * 1.3) * 0.4;
@@ -156,56 +246,55 @@ function drawCreature(x, y, phase, rot, color, scale) {
     const my = Math.round(Math.cos(angle) * 3);
     ctx.fillRect(mx, my + 1, 1, 1);
   }
-
   ctx.restore();
 }
 
-function drawSeatedCreature(x, y, color, scale) {
+function drawSeatedCreature(x, y, color, scale, shake) {
   ctx.save();
-  ctx.translate(Math.round(x), Math.round(y));
+  const sx = shake ? (Math.random() - 0.5) * 2.5 : 0;
+  const sy = shake ? (Math.random() - 0.5) * 1.5 : 0;
+  ctx.translate(Math.round(x + sx), Math.round(y + sy));
   ctx.scale(scale, scale);
-
   ctx.fillStyle = color;
   ctx.fillRect(-4, -3, 8, 6);
   ctx.fillRect(-3, -4, 6, 8);
-
   ctx.fillStyle = '#000';
   ctx.fillRect(1, -2, 2, 2);
-
+  if (shake) {
+    ctx.fillRect(-2, 1, 1, 1);
+    ctx.fillRect(0, 1, 2, 1);
+  }
   const legAngles = [-1.8, -0.9, 0, 0.9, 1.8];
   for (let i = 0; i < 5; i++) {
     const lx = Math.round(Math.sin(legAngles[i]) * 5);
     ctx.fillStyle = color;
     ctx.fillRect(lx - 1, 5, 2, 2);
   }
-
   ctx.restore();
 }
 
 function drawNote(note) {
-  const x = Math.round(note.x);
-  const y = Math.round(note.y);
-  const blink = Math.sin(note.age * 0.15) > 0;
+  if (!note.alive) return;
+  const blink = note.age < 15 || Math.sin(note.age * 0.12) > -0.3;
   if (!blink) return;
-
+  ctx.save();
   ctx.fillStyle = note.color;
-  // note shape: ♪
-  ctx.fillRect(x, y - 4, 1, 6);
-  ctx.fillRect(x - 2, y + 1, 3, 2);
-  ctx.fillRect(x + 1, y - 4, 3, 1);
-  ctx.fillRect(x + 3, y - 3, 1, 2);
+  ctx.font = 'bold 9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(note.symbol, note.x, note.y);
+  ctx.restore();
 }
 
 function drawSeatZone() {
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(0, 0, W, SEAT_ZONE_Y + ROWS * SEAT_H + 4);
-
   ctx.fillStyle = '#333';
   ctx.fillRect(0, SEAT_ZONE_Y + ROWS * SEAT_H + 3, W, 1);
-
+  const shaking = cleared && clearPhase > 150;
   for (const seat of seats) {
     if (seat.occupied && seat.student) {
-      drawSeatedCreature(seat.x, seat.y, seat.student.color, seat.student.sizeScale);
+      drawSeatedCreature(seat.x, seat.y, seat.student.color, seat.student.sizeScale, shaking);
     } else {
       ctx.fillStyle = '#222';
       ctx.fillRect(seat.x - 5, seat.y - 5, 10, 10);
@@ -215,39 +304,129 @@ function drawSeatZone() {
   }
 }
 
-function drawTrampoline() {
-  const tx = Math.round(trampoline.x - trampoline.w / 2);
-  const ty = TRAMPOLINE_Y;
-  ctx.fillStyle = '#888';
-  ctx.fillRect(tx + 2, ty + 3, 2, 5);
-  ctx.fillRect(tx + trampoline.w - 4, ty + 3, 2, 5);
+function drawOrgan() {
+  const cx = Math.round(trampoline.x);
+  const w = Math.round(trampoline.w);
+  const tx = cx - Math.floor(w / 2);
+  const ty = ORGAN_Y;
+  ctx.fillStyle = '#3a2515';
+  ctx.fillRect(tx - 3, ty - 3, w + 6, 13);
+  ctx.fillStyle = '#4a3520';
+  ctx.fillRect(tx - 1, ty - 1, w + 2, 10);
+  const keyW = 4;
+  const numKeys = Math.floor(w / keyW);
+  const keysX = tx + (w - numKeys * keyW) / 2;
+  const hasBoost = trampoline.bounceBoost > 0 || trampoline.speedBoost > 0 || trampoline.w > 50;
+  for (let i = 0; i < numKeys; i++) {
+    const glow = hasBoost && Math.sin(frame * 0.2 + i) > 0.5;
+    ctx.fillStyle = glow ? '#fff8e0' : '#f0e8d8';
+    ctx.fillRect(keysX + i * keyW, ty, keyW - 1, 7);
+  }
+  const blackKey = [1, 1, 0, 1, 1, 1, 0];
+  for (let i = 0; i < numKeys - 1; i++) {
+    if (blackKey[i % 7]) {
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(keysX + i * keyW + keyW - 1, ty, 2, 4);
+    }
+  }
+  ctx.fillStyle = '#3a2515';
+  ctx.fillRect(tx, ty + 9, 2, 5);
+  ctx.fillRect(tx + w - 2, ty + 9, 2, 5);
+}
 
-  const hasBoost = trampoline.bounceBoost > 0 || trampoline.speedBoost > 0;
-  ctx.fillStyle = hasBoost ? '#ddf' : '#fff';
-  ctx.fillRect(tx, ty, trampoline.w, 3);
-  ctx.fillStyle = '#888';
-  for (let i = 0; i < trampoline.w; i += 4) {
-    ctx.fillRect(tx + i, ty + 1, 2, 1);
+function drawTeacher(x, y, playing) {
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.fillStyle = '#f0c830';
+  ctx.fillRect(-4, -14, 8, 5);
+  ctx.fillRect(-5, -12, 10, 3);
+  ctx.fillStyle = '#f5d0a0';
+  ctx.fillRect(-3, -9, 6, 5);
+  ctx.fillStyle = '#333';
+  ctx.fillRect(-2, -8, 1, 1);
+  ctx.fillRect(1, -8, 1, 1);
+  ctx.fillStyle = '#c08060';
+  ctx.fillRect(-1, -6, 2, 1);
+  ctx.fillStyle = '#2a2a4a';
+  ctx.fillRect(-4, -4, 8, 8);
+  const armOfs = playing ? Math.sin(frame * 0.15) * 1.5 : 0;
+  ctx.fillStyle = '#f5d0a0';
+  ctx.fillRect(-7, -2 + armOfs, 3, 2);
+  ctx.fillRect(4, -2 - armOfs, 3, 2);
+  ctx.restore();
+}
+
+function drawSpeechBubble(x, y, text) {
+  ctx.save();
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(text).width;
+  const bw = tw + 14;
+  const bh = 18;
+  const bx = x - bw / 2;
+  const by = y - bh - 8;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 3);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x - 3, by + bh);
+  ctx.lineTo(x + 3, by + bh);
+  ctx.lineTo(x, by + bh + 5);
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.fillText(text, x, by + bh / 2);
+  ctx.restore();
+}
+
+function drawRipples() {
+  for (const r of ripples) {
+    ctx.save();
+    ctx.globalAlpha = r.alpha;
+    ctx.strokeStyle = r.color || '#fff';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawCelebNotes() {
+  for (const n of celebNotes) {
+    ctx.save();
+    ctx.globalAlpha = n.alpha;
+    ctx.fillStyle = n.color;
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(n.symbol, n.x, n.y);
+    ctx.restore();
   }
 }
 
 function drawPowerUps() {
+  ctx.save();
   const y = H - 8;
   ctx.font = '7px monospace';
   ctx.textAlign = 'left';
+  let xOff = 4;
   if (trampoline.bounceBoost > 0) {
-    ctx.fillStyle = '#8f8';
-    ctx.fillText('BOUNCE+', 4, y);
+    ctx.fillStyle = '#88ff88';
+    ctx.fillText('BOUNCE+', xOff, y);
+    xOff += 50;
   }
   if (trampoline.speedBoost > 0) {
-    ctx.fillStyle = '#88f';
-    ctx.fillText('SPEED+', trampoline.bounceBoost > 0 ? 52 : 4, y);
+    ctx.fillStyle = '#88ccff';
+    ctx.fillText('SPEED+', xOff, y);
+    xOff += 48;
   }
   if (trampoline.w > 50) {
-    ctx.fillStyle = '#f88';
-    const xOff = (trampoline.bounceBoost > 0 ? 48 : 0) + (trampoline.speedBoost > 0 ? 48 : 0);
-    ctx.fillText('WIDE+', 4 + xOff, y);
+    ctx.fillStyle = '#ff88cc';
+    ctx.fillText('WIDE+', xOff, y);
   }
+  ctx.restore();
 }
 
 function findNearestEmptySeat(x, y) {
@@ -261,40 +440,81 @@ function findNearestEmptySeat(x, y) {
   return best;
 }
 
+function updateClearAnimation() {
+  clearPhase++;
+  trampoline.x += (W / 2 - trampoline.x) * 0.05;
+  if (clearPhase > 30) {
+    teacherX += (W / 2 - teacherX) * 0.04;
+  }
+  if (clearPhase === 150) playSE('organ');
+  if (clearPhase > 150) {
+    if (clearPhase % 10 === 0) {
+      const si = Math.floor(Math.random() * seats.length);
+      const seat = seats[si];
+      if (seat.occupied) {
+        ripples.push({ x: seat.x, y: seat.y, r: 1, alpha: 0.5, color: seat.student.noteColor });
+      }
+    }
+    if (clearPhase % 7 === 0) {
+      const si = Math.floor(Math.random() * seats.length);
+      const seat = seats[si];
+      if (seat.occupied) {
+        const syms = ['\u266A', '\u266B', '\u266C', '\u2669'];
+        celebNotes.push({
+          x: seat.x + (Math.random() - 0.5) * 8,
+          y: seat.y - 4,
+          vy: -0.3 - Math.random() * 0.4,
+          vx: (Math.random() - 0.5) * 0.3,
+          symbol: syms[Math.floor(Math.random() * syms.length)],
+          alpha: 1,
+          color: seat.student.noteColor
+        });
+      }
+    }
+    if (clearPhase % 12 === 0) {
+      const syms = ['\u266A', '\u266B', '\u266C'];
+      celebNotes.push({
+        x: trampoline.x + (Math.random() - 0.5) * trampoline.w * 0.8,
+        y: ORGAN_Y - 8,
+        vy: -0.6 - Math.random() * 0.5,
+        vx: (Math.random() - 0.5) * 0.5,
+        symbol: syms[Math.floor(Math.random() * syms.length)],
+        alpha: 1,
+        color: `hsl(${Math.random() * 60 + 30}, 80%, 70%)`
+      });
+    }
+  }
+  for (const r of ripples) { r.r += 0.35; r.alpha -= 0.012; }
+  ripples = ripples.filter(r => r.alpha > 0);
+  for (const n of celebNotes) { n.y += n.vy; n.x += n.vx; n.alpha -= 0.006; }
+  celebNotes = celebNotes.filter(n => n.alpha > 0);
+  if (clearPhase > 350) canRestart = true;
+}
+
 function update() {
   frame++;
-  if (cleared) return;
-
-  // decay power-ups
+  if (cleared) { updateClearAnimation(); return; }
   if (trampoline.speedBoost > 0) trampoline.speedBoost -= 0.003;
   if (trampoline.bounceBoost > 0) trampoline.bounceBoost -= 0.003;
   if (trampoline.w > 50) trampoline.w = Math.max(50, trampoline.w - 0.02);
-
   const baseSpeed = 5 + trampoline.speedBoost * 8;
   if (keys['ArrowLeft'] || keys['a']) mouseX = trampoline.x - baseSpeed;
   if (keys['ArrowRight'] || keys['d']) mouseX = trampoline.x + baseSpeed;
   trampoline.x += (mouseX - trampoline.x) * (0.25 + trampoline.speedBoost * 0.15);
   trampoline.x = Math.max(trampoline.w / 2, Math.min(W - trampoline.w / 2, trampoline.x));
-
   const tx1 = trampoline.x - trampoline.w / 2;
   const tx2 = trampoline.x + trampoline.w / 2;
   const seatZoneBottom = SEAT_ZONE_Y + ROWS * SEAT_H + 4;
-
-  // update students
   for (const s of students) {
     if (!s.active || s.seated) continue;
-
     s.vy += s.gravity;
     s.x += s.vx;
     s.y += s.vy;
     s.legPhase += 0.2;
     s.rotation += s.vx * 0.015;
-
     const r = 6 * s.sizeScale;
-
     if (s.x < r) { s.x = r; s.vx = Math.abs(s.vx); }
     if (s.x > W - r) { s.x = W - r; s.vx = -Math.abs(s.vx); }
-
     if (s.y - r <= seatZoneBottom && s.vy < 0) {
       const seat = findNearestEmptySeat(s.x, s.y);
       if (seat) {
@@ -304,26 +524,23 @@ function update() {
         s.active = false;
         s.seatTime = frame;
         seatedCount++;
-        if (seatedCount >= TOTAL) cleared = true;
+        playSE('seat');
+        if (seatedCount >= TOTAL) { cleared = true; playSE('victory'); }
         continue;
       }
     }
-
     if (s.y < r) { s.y = r; s.vy = Math.abs(s.vy) * 0.3; }
-
-    if (s.vy > 0 &&
-        s.y + r >= TRAMPOLINE_Y &&
-        s.y + r <= TRAMPOLINE_Y + 14 &&
+    if (s.vy > 0 && s.y + r >= ORGAN_Y && s.y + r <= ORGAN_Y + 14 &&
         s.x >= tx1 - 4 && s.x <= tx2 + 4) {
       const bounce = s.bouncePower + trampoline.bounceBoost * 3;
       s.vy = -bounce;
-      s.y = TRAMPOLINE_Y - r;
+      s.y = ORGAN_Y - r;
       const hitPos = (s.x - trampoline.x) / (trampoline.w / 2);
       s.vx += hitPos * 1.2;
       s.vx = Math.max(-4, Math.min(4, s.vx));
       s.legPhase = 0;
+      playSE('bounce');
     }
-
     if (s.y > H + 30) {
       s.x = 20 + Math.random() * (W - 40);
       s.y = SPAWN_Y + Math.random() * 40;
@@ -332,8 +549,6 @@ function update() {
       s.rotation = 0;
     }
   }
-
-  // seated students drop notes after a delay
   for (const s of students) {
     if (s.seated && !s.noteDropped && frame - s.seatTime > 60 + Math.random() * 120) {
       s.noteDropped = true;
@@ -341,22 +556,18 @@ function update() {
       if (seat) spawnNote(seat, s);
     }
   }
-
-  // update notes
   for (const n of notes) {
     if (!n.alive) continue;
     n.y += n.vy;
     n.age++;
-
-    // trampoline catches note
-    if (n.y >= TRAMPOLINE_Y - 2 && n.y <= TRAMPOLINE_Y + 8 &&
+    if (n.y >= ORGAN_Y - 2 && n.y <= ORGAN_Y + 8 &&
         n.x >= tx1 - 2 && n.x <= tx2 + 2) {
       n.alive = false;
+      playSE('item');
       if (n.type === 'speed') trampoline.speedBoost = Math.min(1, trampoline.speedBoost + 0.5);
       else if (n.type === 'bounce') trampoline.bounceBoost = Math.min(1, trampoline.bounceBoost + 0.5);
       else if (n.type === 'wide') trampoline.w = Math.min(80, trampoline.w + 10);
     }
-
     if (n.y > H + 10) n.alive = false;
   }
   notes = notes.filter(n => n.alive);
@@ -365,42 +576,50 @@ function update() {
 function draw() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
-
   drawSeatZone();
-  drawTrampoline();
-
-  for (const n of notes) {
-    drawNote(n);
+  drawOrgan();
+  if (!cleared) {
+    for (const n of notes) drawNote(n);
   }
-
   for (const s of students) {
     if (s.active && !s.seated) {
       drawCreature(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
     }
   }
-
-  drawPowerUps();
-
-  const hudText = cleared
-    ? `ALL SEATED! [click to play again]`
-    : `SEATED: ${seatedCount} / ${TOTAL}`;
-  document.getElementById('hud').textContent = hudText;
-
+  if (!cleared) drawPowerUps();
   if (cleared) {
-    ctx.fillStyle = '#fff';
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('ALL SEATED!', W / 2, H / 2 + 20);
-    ctx.font = '8px monospace';
-    ctx.fillText('click / enter to play again', W / 2, H / 2 + 36);
+    drawRipples();
+    drawCelebNotes();
+    if (clearPhase > 30) {
+      drawTeacher(teacherX, ORGAN_Y - 6, clearPhase > 150);
+    }
+    if (clearPhase > 90 && clearPhase < 300) {
+      ctx.save();
+      const a = clearPhase < 110 ? (clearPhase - 90) / 20 : clearPhase > 270 ? (300 - clearPhase) / 30 : 1;
+      ctx.globalAlpha = Math.max(0, Math.min(1, a));
+      drawSpeechBubble(teacherX, ORGAN_Y - 22, '\u6388\u696D\u304C\u59CB\u307E\u308B\u3088\uFF01');
+      ctx.restore();
+    }
+    if (canRestart) {
+      ctx.save();
+      ctx.fillStyle = '#fff';
+      ctx.font = '8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = 0.5 + Math.sin(frame * 0.08) * 0.3;
+      ctx.fillText('click / enter to play again', W / 2, H / 2 + 50);
+      ctx.restore();
+    }
   }
+  document.getElementById('hud').textContent = cleared
+    ? (canRestart ? 'ALL SEATED!' : 'ALL SEATED!')
+    : `SEATED: ${seatedCount} / ${TOTAL}`;
 }
 
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+canvas.addEventListener('click', () => { initAudio(); }, { once: true });
+document.addEventListener('keydown', () => { initAudio(); }, { once: true });
+canvas.addEventListener('touchstart', () => { initAudio(); }, { once: true });
 
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
@@ -415,14 +634,14 @@ canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   mouseX = (e.touches[0].clientX - rect.left) / SCALE;
-  if (cleared) restart();
+  if (canRestart) restart();
 }, { passive: false });
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
-  if (cleared && (e.key === ' ' || e.key === 'Enter')) restart();
+  if (canRestart && (e.key === ' ' || e.key === 'Enter')) restart();
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
-canvas.addEventListener('click', () => { if (cleared) restart(); });
+canvas.addEventListener('click', () => { if (canRestart) restart(); });
 
 restart();
 loop();
