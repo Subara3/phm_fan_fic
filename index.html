@@ -71,7 +71,7 @@ const MODES = {
 
 let gameState = 'title';
 let cfg = null;
-let students = [];
+let eridians = [];
 let seats = [];
 let notes = [];
 let seatedCount = 0;
@@ -183,8 +183,8 @@ function hslToRgb(h, s, l) {
   return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
 }
 
-function generateStudents() {
-  students = [];
+function generateEridians() {
+  eridians = [];
   for (let i = 0; i < TOTAL; i++) {
     const weight = 0.3 + Math.random() * 0.7;
     const sizeScale = 0.6 + weight * 0.5;
@@ -192,7 +192,7 @@ function generateStudents() {
     const sat = 15 + Math.random() * 25;
     const lit = 75 - weight * 25;
     const [r, g, b] = hslToRgb(hue, sat, lit);
-    students.push({
+    eridians.push({
       weight, sizeScale, hue,
       color: `rgb(${r},${g},${b})`,
       noteColor: `rgb(${Math.min(255,r+40)},${Math.min(255,g+40)},${Math.min(255,b+40)})`,
@@ -213,7 +213,7 @@ function initSeats() {
       seats.push({
         x: SEAT_MARGIN_X + c * SEAT_W + SEAT_W / 2,
         y: SEAT_ZONE_Y + r * SEAT_H + SEAT_H / 2,
-        occupied: false, student: null
+        occupied: false, eridian: null
       });
     }
   }
@@ -221,7 +221,7 @@ function initSeats() {
 
 function spawnAll() {
   for (let i = 0; i < TOTAL; i++) {
-    const s = students[i];
+    const s = eridians[i];
     s.x = 20 + Math.random() * (W - 40);
     s.y = SPAWN_Y + Math.random() * 80;
     s.vx = (Math.random() - 0.5) * cfg.spawnVx;
@@ -232,7 +232,7 @@ function spawnAll() {
   }
 }
 
-function spawnNote(seat, student) {
+function spawnNote(seat, eridian) {
   const def = NOTE_DEFS[Math.floor(Math.random() * NOTE_DEFS.length)];
   notes.push({
     x: seat.x, y: seat.y + 10,
@@ -242,13 +242,13 @@ function spawnNote(seat, student) {
   });
 }
 
-function unseatStudent() {
-  const seatedSeats = seats.filter(s => s.occupied && s.student);
+function unseatEridian() {
+  const seatedSeats = seats.filter(s => s.occupied && s.eridian);
   if (seatedSeats.length <= 5) return;
   const seat = seatedSeats[Math.floor(Math.random() * seatedSeats.length)];
-  const s = seat.student;
+  const s = seat.eridian;
   seat.occupied = false;
-  seat.student = null;
+  seat.eridian = null;
   s.seated = false;
   s.active = true;
   s.x = seat.x;
@@ -277,13 +277,13 @@ function startGame(modeKey) {
   trampoline.speedBoost = 0;
   trampoline.bounceBoost = 0;
   trampoline.w = cfg.trampolineW;
-  generateStudents();
+  generateEridians();
   initSeats();
   spawnAll();
   document.getElementById('info').textContent = '\u2190 \u2192 or mouse to move organ';
 }
 
-function drawCreature(x, y, phase, rot, color, scale) {
+function drawEridian(x, y, phase, rot, color, scale) {
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y));
   ctx.rotate(rot);
@@ -304,7 +304,7 @@ function drawCreature(x, y, phase, rot, color, scale) {
   ctx.restore();
 }
 
-function drawSeatedCreature(x, y, color, scale, shake) {
+function drawSeatedEridian(x, y, color, scale, shake) {
   ctx.save();
   const sx = shake ? (Math.random() - 0.5) * 2.5 : 0;
   const sy = shake ? (Math.random() - 0.5) * 1.5 : 0;
@@ -340,8 +340,8 @@ function drawSeatZone() {
   ctx.fillRect(0, SEAT_ZONE_Y + ROWS * SEAT_H + 3, W, 1);
   const shaking = cleared && clearPhase > 150;
   for (const seat of seats) {
-    if (seat.occupied && seat.student) {
-      drawSeatedCreature(seat.x, seat.y, seat.student.color, seat.student.sizeScale, shaking);
+    if (seat.occupied && seat.eridian) {
+      drawSeatedEridian(seat.x, seat.y, seat.eridian.color, seat.eridian.sizeScale, shaking);
     } else {
       ctx.fillStyle = '#222';
       ctx.fillRect(seat.x - 5, seat.y - 5, 10, 10);
@@ -394,7 +394,7 @@ function drawTeacher(x, y, playing) {
   ctx.fillRect(1, -8, 1, 1);
   ctx.fillStyle = '#c08060';
   ctx.fillRect(-1, -6, 2, 1);
-  ctx.fillStyle = '#2a2a4a';
+  ctx.fillStyle = '#f0f0f0';
   ctx.fillRect(-4, -4, 8, 8);
   const armOfs = playing ? Math.sin(frame * 0.15) * 1.5 : 0;
   ctx.fillStyle = '#f5d0a0';
@@ -469,7 +469,7 @@ function updateClearAnimation() {
   if (clearPhase > 150) {
     if (clearPhase % 10 === 0) {
       const seat = seats[Math.floor(Math.random() * seats.length)];
-      if (seat.occupied) ripples.push({ x: seat.x, y: seat.y, r: 1, alpha: 0.5, color: seat.student.noteColor });
+      if (seat.occupied) ripples.push({ x: seat.x, y: seat.y, r: 1, alpha: 0.5, color: seat.eridian.noteColor });
     }
     if (clearPhase % 7 === 0) {
       const seat = seats[Math.floor(Math.random() * seats.length)];
@@ -477,7 +477,7 @@ function updateClearAnimation() {
         const syms = ['\u266A', '\u266B', '\u266C', '\u2669'];
         celebNotes.push({ x: seat.x + (Math.random() - 0.5) * 8, y: seat.y - 4,
           vy: -0.3 - Math.random() * 0.4, vx: (Math.random() - 0.5) * 0.3,
-          symbol: syms[Math.floor(Math.random() * syms.length)], alpha: 1, color: seat.student.noteColor });
+          symbol: syms[Math.floor(Math.random() * syms.length)], alpha: 1, color: seat.eridian.noteColor });
       }
     }
     if (clearPhase % 12 === 0) {
@@ -513,7 +513,7 @@ function update() {
   const tx2 = trampoline.x + trampoline.w / 2;
   const seatZoneBottom = SEAT_ZONE_Y + ROWS * SEAT_H + 4;
 
-  for (const s of students) {
+  for (const s of eridians) {
     if (!s.active || s.seated) continue;
     s.vy += s.gravity;
     s.x += s.vx;
@@ -527,7 +527,7 @@ function update() {
       const seat = findNearestEmptySeat(s.x, s.y, cfg.seatMaxDist);
       if (seat) {
         seat.occupied = true;
-        seat.student = s;
+        seat.eridian = s;
         s.seated = true;
         s.active = false;
         s.seatTime = frame;
@@ -557,22 +557,22 @@ function update() {
     }
   }
 
-  // HARD: seated students occasionally jump out
+  // HARD: seated eridians occasionally jump out
   if (cfg.unseatInterval > 0 && seatedCount > 5 && !cleared) {
     unseatTimer++;
     if (unseatTimer >= cfg.unseatInterval) {
       unseatTimer = 0;
-      unseatStudent();
+      unseatEridian();
     }
   }
 
   if (seatedCount > 0) {
     const dropInterval = Math.max(15, Math.round(cfg.noteBaseInterval - seatedCount * 2.5));
     if (frame % dropInterval === 0) {
-      const seated = students.filter(s => s.seated);
+      const seated = eridians.filter(s => s.seated);
       if (seated.length > 0) {
         const s = seated[Math.floor(Math.random() * seated.length)];
-        const seat = seats.find(st => st.student === s);
+        const seat = seats.find(st => st.eridian === s);
         if (seat) spawnNote(seat, s);
       }
     }
@@ -605,14 +605,14 @@ function drawTitle() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
 
-  // title creatures walking around
+  // title eridians walking around
   const phase = frame * 0.05;
   for (let i = 0; i < 8; i++) {
     const cx = 30 + i * 45 + Math.sin(phase + i * 2) * 15;
     const cy = 80 + Math.sin(phase * 0.7 + i) * 10;
     const hue = i * 45;
     const [r, g, b] = hslToRgb(hue, 25, 65);
-    drawCreature(cx, cy, phase * 4 + i, Math.sin(phase + i) * 0.2, `rgb(${r},${g},${b})`, 0.8);
+    drawEridian(cx, cy, phase * 4 + i, Math.sin(phase + i) * 0.2, `rgb(${r},${g},${b})`, 0.8);
   }
 
   ctx.save();
@@ -652,7 +652,7 @@ function drawTitle() {
   ctx.font = '9px sans-serif';
   ctx.fillStyle = '#666';
   ctx.fillText('Novel: Casual and friendly', W / 2, BTN_Y + BTN_H + 18);
-  ctx.fillText('Movie: Students escape seats, strict seating', W / 2, BTN_Y + BTN_H + 32);
+  ctx.fillText('Movie: Eridians escape seats, strict seating', W / 2, BTN_Y + BTN_H + 32);
 
   ctx.font = '8px sans-serif';
   ctx.fillStyle = '#555';
@@ -672,8 +672,8 @@ function draw() {
   drawSeatZone();
   drawOrgan();
   if (!cleared) { for (const n of notes) drawNote(n); }
-  for (const s of students) {
-    if (s.active && !s.seated) drawCreature(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
+  for (const s of eridians) {
+    if (s.active && !s.seated) drawEridian(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
   }
   if (!cleared) drawPowerUps();
   if (cleared) {
