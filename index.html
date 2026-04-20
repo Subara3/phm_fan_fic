@@ -13,9 +13,9 @@ canvas { border: 2px solid #444; cursor: none; }
 </style>
 </head>
 <body>
-<div class="hud" id="hud">SEATED: 0 / 30</div>
+<div class="hud" id="hud"></div>
 <canvas id="game"></canvas>
-<div class="info">← → or mouse to move organ</div>
+<div class="info" id="info"></div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -36,6 +36,33 @@ const SEAT_MARGIN_X = (W - COLS * SEAT_W) / 2;
 const ORGAN_Y = H - 22;
 const SPAWN_Y = 100;
 
+const MODES = {
+  easy: {
+    name: '\u539F\u4F5C\u7248', sub: 'EASY',
+    gravityBase: 0.05, gravityWeight: 0.06,
+    bounceBase: 8.5, bounceWeight: 1.5,
+    trampolineW: 50, trampolineWMax: 80,
+    seatMaxDist: 9999,
+    seatVyMax: 0,
+    unseatInterval: 0,
+    spawnVx: 2,
+    hitVxMult: 1.2
+  },
+  hard: {
+    name: '\u6620\u753B\u7248', sub: 'HARD',
+    gravityBase: 0.06, gravityWeight: 0.08,
+    bounceBase: 7.8, bounceWeight: 1.8,
+    trampolineW: 40, trampolineWMax: 60,
+    seatMaxDist: 18,
+    seatVyMax: -1.5,
+    unseatInterval: 180,
+    spawnVx: 3,
+    hitVxMult: 1.8
+  }
+};
+
+let gameState = 'title';
+let cfg = null;
 let students = [];
 let seats = [];
 let notes = [];
@@ -44,12 +71,13 @@ let frame = 0;
 let cleared = false;
 let mouseX = W / 2;
 let keys = {};
-
 let clearPhase = 0;
 let ripples = [];
 let celebNotes = [];
 let teacherX = W + 30;
 let canRestart = false;
+let titleHover = null;
+let unseatTimer = 0;
 
 const trampoline = { x: W / 2, w: 50, speedBoost: 0, bounceBoost: 0 };
 
@@ -64,7 +92,6 @@ function playSE(type) {
   const t = audioCtx.currentTime;
   const g = audioCtx.createGain();
   g.connect(audioCtx.destination);
-
   if (type === 'bounce') {
     g.gain.setValueAtTime(0.12, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
@@ -73,15 +100,11 @@ function playSE(type) {
     o.frequency.setValueAtTime(600, t);
     o.frequency.exponentialRampToValueAtTime(1200, t + 0.08);
     o.frequency.exponentialRampToValueAtTime(800, t + 0.15);
-    o.connect(g);
-    o.start(t); o.stop(t + 0.15);
+    o.connect(g); o.start(t); o.stop(t + 0.15);
   } else if (type === 'seat') {
-    g.gain.setValueAtTime(0.1, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
     [523, 659, 784].forEach((freq, i) => {
       const o = audioCtx.createOscillator();
-      o.type = 'sine';
-      o.frequency.value = freq;
+      o.type = 'sine'; o.frequency.value = freq;
       const sg = audioCtx.createGain();
       sg.gain.setValueAtTime(0, t + i * 0.06);
       sg.gain.linearRampToValueAtTime(0.08, t + i * 0.06 + 0.02);
@@ -96,8 +119,7 @@ function playSE(type) {
     o.type = 'triangle';
     o.frequency.setValueAtTime(880, t);
     o.frequency.exponentialRampToValueAtTime(1760, t + 0.1);
-    o.connect(g);
-    o.start(t); o.stop(t + 0.2);
+    o.connect(g); o.start(t); o.stop(t + 0.2);
   } else if (type === 'victory') {
     [523, 659, 784, 1047].forEach((freq, i) => {
       const o = audioCtx.createOscillator();
@@ -111,13 +133,9 @@ function playSE(type) {
       o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.5);
     });
   } else if (type === 'organ') {
-    const freqs = [262, 330, 392, 523, 330, 392, 523, 659];
-    freqs.forEach((freq, i) => {
-      const o = audioCtx.createOscillator();
-      o.type = 'sine';
-      const o2 = audioCtx.createOscillator();
-      o2.type = 'sine';
-      o2.frequency.value = freq * 2;
+    [262, 330, 392, 523, 330, 392, 523, 659].forEach((freq, i) => {
+      const o = audioCtx.createOscillator(); o.type = 'sine';
+      const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * 2;
       const sg = audioCtx.createGain();
       sg.gain.setValueAtTime(0, t + i * 0.25);
       sg.gain.linearRampToValueAtTime(0.06, t + i * 0.25 + 0.05);
@@ -132,6 +150,14 @@ function playSE(type) {
       o.start(t + i * 0.25); o.stop(t + i * 0.25 + 0.4);
       o2.start(t + i * 0.25); o2.stop(t + i * 0.25 + 0.35);
     });
+  } else if (type === 'unseat') {
+    g.gain.setValueAtTime(0.08, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    const o = audioCtx.createOscillator();
+    o.type = 'square';
+    o.frequency.setValueAtTime(400, t);
+    o.frequency.exponentialRampToValueAtTime(200, t + 0.15);
+    o.connect(g); o.start(t); o.stop(t + 0.2);
   }
 }
 
@@ -162,8 +188,8 @@ function generateStudents() {
       weight, sizeScale, hue,
       color: `rgb(${r},${g},${b})`,
       noteColor: `rgb(${Math.min(255,r+40)},${Math.min(255,g+40)},${Math.min(255,b+40)})`,
-      gravity: 0.05 + weight * 0.06,
-      bouncePower: 8.5 - weight * 1.5,
+      gravity: cfg.gravityBase + weight * cfg.gravityWeight,
+      bouncePower: cfg.bounceBase - weight * cfg.bounceWeight,
       seated: false, seatTime: 0,
       x: 0, y: 0, vx: 0, vy: 0,
       legPhase: Math.random() * 6,
@@ -190,10 +216,11 @@ function spawnAll() {
     const s = students[i];
     s.x = 20 + Math.random() * (W - 40);
     s.y = SPAWN_Y + Math.random() * 80;
-    s.vx = (Math.random() - 0.5) * 2;
+    s.vx = (Math.random() - 0.5) * cfg.spawnVx;
     s.vy = Math.random() * -1;
     s.rotation = 0;
     s.active = true;
+    s.seated = false;
   }
 }
 
@@ -207,21 +234,45 @@ function spawnNote(seat, student) {
   });
 }
 
-function restart() {
-  generateStudents();
-  initSeats();
-  notes = [];
-  seatedCount = 0;
+function unseatStudent() {
+  const seatedSeats = seats.filter(s => s.occupied && s.student);
+  if (seatedSeats.length <= 5) return;
+  const seat = seatedSeats[Math.floor(Math.random() * seatedSeats.length)];
+  const s = seat.student;
+  seat.occupied = false;
+  seat.student = null;
+  s.seated = false;
+  s.active = true;
+  s.x = seat.x;
+  s.y = seat.y + 10;
+  s.vy = 2 + Math.random() * 2;
+  s.vx = (Math.random() - 0.5) * 4;
+  s.rotation = 0;
+  s.legPhase = 0;
+  seatedCount--;
+  playSE('unseat');
+}
+
+function startGame(modeKey) {
+  cfg = MODES[modeKey];
+  gameState = 'game';
   cleared = false;
   clearPhase = 0;
   ripples = [];
   celebNotes = [];
   teacherX = W + 30;
   canRestart = false;
+  unseatTimer = 0;
+  notes = [];
+  seatedCount = 0;
+  frame = 0;
   trampoline.speedBoost = 0;
   trampoline.bounceBoost = 0;
-  trampoline.w = 50;
+  trampoline.w = cfg.trampolineW;
+  generateStudents();
+  initSeats();
   spawnAll();
+  document.getElementById('info').textContent = '\u2190 \u2192 or mouse to move organ';
 }
 
 function drawCreature(x, y, phase, rot, color, scale) {
@@ -242,9 +293,7 @@ function drawCreature(x, y, phase, rot, color, scale) {
     const ly = Math.round(Math.cos(angle) * 6);
     ctx.fillStyle = color;
     ctx.fillRect(lx - 1, ly + 1, 2, 2);
-    const mx = Math.round(Math.sin(angle) * 3);
-    const my = Math.round(Math.cos(angle) * 3);
-    ctx.fillRect(mx, my + 1, 1, 1);
+    ctx.fillRect(Math.round(Math.sin(angle) * 3), Math.round(Math.cos(angle) * 3) + 1, 1, 1);
   }
   ctx.restore();
 }
@@ -260,15 +309,11 @@ function drawSeatedCreature(x, y, color, scale, shake) {
   ctx.fillRect(-3, -4, 6, 8);
   ctx.fillStyle = '#000';
   ctx.fillRect(1, -2, 2, 2);
-  if (shake) {
-    ctx.fillRect(-2, 1, 1, 1);
-    ctx.fillRect(0, 1, 2, 1);
-  }
+  if (shake) { ctx.fillRect(-2, 1, 1, 1); ctx.fillRect(0, 1, 2, 1); }
   const legAngles = [-1.8, -0.9, 0, 0.9, 1.8];
   for (let i = 0; i < 5; i++) {
-    const lx = Math.round(Math.sin(legAngles[i]) * 5);
     ctx.fillStyle = color;
-    ctx.fillRect(lx - 1, 5, 2, 2);
+    ctx.fillRect(Math.round(Math.sin(legAngles[i]) * 5) - 1, 5, 2, 2);
   }
   ctx.restore();
 }
@@ -280,8 +325,7 @@ function drawNote(note) {
   ctx.font = 'bold 12px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const bob = Math.sin(note.age * 0.08) * 1.5;
-  ctx.fillText(note.symbol, note.x + bob, note.y);
+  ctx.fillText(note.symbol, note.x + Math.sin(note.age * 0.08) * 1.5, note.y);
   ctx.restore();
 }
 
@@ -315,7 +359,7 @@ function drawOrgan() {
   const keyW = 4;
   const numKeys = Math.floor(w / keyW);
   const keysX = tx + (w - numKeys * keyW) / 2;
-  const hasBoost = trampoline.bounceBoost > 0 || trampoline.speedBoost > 0 || trampoline.w > 50;
+  const hasBoost = trampoline.bounceBoost > 0 || trampoline.speedBoost > 0 || trampoline.w > cfg.trampolineW;
   for (let i = 0; i < numKeys; i++) {
     const glow = hasBoost && Math.sin(frame * 0.2 + i) > 0.5;
     ctx.fillStyle = glow ? '#fff8e0' : '#f0e8d8';
@@ -361,19 +405,12 @@ function drawSpeechBubble(x, y, text) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const tw = ctx.measureText(text).width;
-  const bw = tw + 14;
-  const bh = 18;
-  const bx = x - bw / 2;
-  const by = y - bh - 8;
+  const bw = tw + 14, bh = 18;
+  const bx = x - bw / 2, by = y - bh - 8;
   ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill();
   ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 3);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(x - 3, by + bh);
-  ctx.lineTo(x + 3, by + bh);
-  ctx.lineTo(x, by + bh + 5);
-  ctx.fill();
+  ctx.moveTo(x - 3, by + bh); ctx.lineTo(x + 3, by + bh); ctx.lineTo(x, by + bh + 5); ctx.fill();
   ctx.fillStyle = '#222';
   ctx.fillText(text, x, by + bh / 2);
   ctx.restore();
@@ -381,25 +418,18 @@ function drawSpeechBubble(x, y, text) {
 
 function drawRipples() {
   for (const r of ripples) {
-    ctx.save();
-    ctx.globalAlpha = r.alpha;
-    ctx.strokeStyle = r.color || '#fff';
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.save(); ctx.globalAlpha = r.alpha;
+    ctx.strokeStyle = r.color || '#fff'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   }
 }
 
 function drawCelebNotes() {
   for (const n of celebNotes) {
-    ctx.save();
-    ctx.globalAlpha = n.alpha;
-    ctx.fillStyle = n.color;
-    ctx.font = '8px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.save(); ctx.globalAlpha = n.alpha;
+    ctx.fillStyle = n.color; ctx.font = '8px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(n.symbol, n.x, n.y);
     ctx.restore();
   }
@@ -408,33 +438,21 @@ function drawCelebNotes() {
 function drawPowerUps() {
   ctx.save();
   const y = H - 8;
-  ctx.font = '7px monospace';
-  ctx.textAlign = 'left';
+  ctx.font = '7px monospace'; ctx.textAlign = 'left';
   let xOff = 4;
-  if (trampoline.bounceBoost > 0) {
-    ctx.fillStyle = '#88ff88';
-    ctx.fillText('BOUNCE+', xOff, y);
-    xOff += 50;
-  }
-  if (trampoline.speedBoost > 0) {
-    ctx.fillStyle = '#88ccff';
-    ctx.fillText('SPEED+', xOff, y);
-    xOff += 48;
-  }
-  if (trampoline.w > 50) {
-    ctx.fillStyle = '#ff88cc';
-    ctx.fillText('WIDE+', xOff, y);
-  }
+  if (trampoline.bounceBoost > 0) { ctx.fillStyle = '#88ff88'; ctx.fillText('BOUNCE+', xOff, y); xOff += 50; }
+  if (trampoline.speedBoost > 0) { ctx.fillStyle = '#88ccff'; ctx.fillText('SPEED+', xOff, y); xOff += 48; }
+  if (trampoline.w > cfg.trampolineW) { ctx.fillStyle = '#ff88cc'; ctx.fillText('WIDE+', xOff, y); }
   ctx.restore();
 }
 
-function findNearestEmptySeat(x, y) {
+function findNearestEmptySeat(x, y, maxDist) {
   let best = null, bestDist = Infinity;
   for (const seat of seats) {
     if (seat.occupied) continue;
     const dx = seat.x - x, dy = seat.y - y;
-    const d = dx * dx + dy * dy;
-    if (d < bestDist) { bestDist = d; best = seat; }
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < bestDist && d < maxDist) { bestDist = d; best = seat; }
   }
   return best;
 }
@@ -442,45 +460,28 @@ function findNearestEmptySeat(x, y) {
 function updateClearAnimation() {
   clearPhase++;
   trampoline.x += (W / 2 - trampoline.x) * 0.05;
-  if (clearPhase > 30) {
-    teacherX += (W / 2 - teacherX) * 0.04;
-  }
+  if (clearPhase > 30) teacherX += (W / 2 - teacherX) * 0.04;
   if (clearPhase === 150) playSE('organ');
   if (clearPhase > 150) {
     if (clearPhase % 10 === 0) {
-      const si = Math.floor(Math.random() * seats.length);
-      const seat = seats[si];
-      if (seat.occupied) {
-        ripples.push({ x: seat.x, y: seat.y, r: 1, alpha: 0.5, color: seat.student.noteColor });
-      }
+      const seat = seats[Math.floor(Math.random() * seats.length)];
+      if (seat.occupied) ripples.push({ x: seat.x, y: seat.y, r: 1, alpha: 0.5, color: seat.student.noteColor });
     }
     if (clearPhase % 7 === 0) {
-      const si = Math.floor(Math.random() * seats.length);
-      const seat = seats[si];
+      const seat = seats[Math.floor(Math.random() * seats.length)];
       if (seat.occupied) {
         const syms = ['\u266A', '\u266B', '\u266C', '\u2669'];
-        celebNotes.push({
-          x: seat.x + (Math.random() - 0.5) * 8,
-          y: seat.y - 4,
-          vy: -0.3 - Math.random() * 0.4,
-          vx: (Math.random() - 0.5) * 0.3,
-          symbol: syms[Math.floor(Math.random() * syms.length)],
-          alpha: 1,
-          color: seat.student.noteColor
-        });
+        celebNotes.push({ x: seat.x + (Math.random() - 0.5) * 8, y: seat.y - 4,
+          vy: -0.3 - Math.random() * 0.4, vx: (Math.random() - 0.5) * 0.3,
+          symbol: syms[Math.floor(Math.random() * syms.length)], alpha: 1, color: seat.student.noteColor });
       }
     }
     if (clearPhase % 12 === 0) {
       const syms = ['\u266A', '\u266B', '\u266C'];
-      celebNotes.push({
-        x: trampoline.x + (Math.random() - 0.5) * trampoline.w * 0.8,
-        y: ORGAN_Y - 8,
-        vy: -0.6 - Math.random() * 0.5,
-        vx: (Math.random() - 0.5) * 0.5,
-        symbol: syms[Math.floor(Math.random() * syms.length)],
-        alpha: 1,
-        color: `hsl(${Math.random() * 60 + 30}, 80%, 70%)`
-      });
+      celebNotes.push({ x: trampoline.x + (Math.random() - 0.5) * trampoline.w * 0.8, y: ORGAN_Y - 8,
+        vy: -0.6 - Math.random() * 0.5, vx: (Math.random() - 0.5) * 0.5,
+        symbol: syms[Math.floor(Math.random() * syms.length)], alpha: 1,
+        color: `hsl(${Math.random() * 60 + 30}, 80%, 70%)` });
     }
   }
   for (const r of ripples) { r.r += 0.35; r.alpha -= 0.012; }
@@ -491,11 +492,14 @@ function updateClearAnimation() {
 }
 
 function update() {
+  if (gameState === 'title') { frame++; return; }
   frame++;
   if (cleared) { updateClearAnimation(); return; }
+
   if (trampoline.speedBoost > 0) trampoline.speedBoost -= 0.003;
   if (trampoline.bounceBoost > 0) trampoline.bounceBoost -= 0.003;
-  if (trampoline.w > 50) trampoline.w = Math.max(50, trampoline.w - 0.02);
+  if (trampoline.w > cfg.trampolineW) trampoline.w = Math.max(cfg.trampolineW, trampoline.w - 0.02);
+
   const baseSpeed = 5 + trampoline.speedBoost * 8;
   if (keys['ArrowLeft'] || keys['a']) mouseX = trampoline.x - baseSpeed;
   if (keys['ArrowRight'] || keys['d']) mouseX = trampoline.x + baseSpeed;
@@ -504,6 +508,7 @@ function update() {
   const tx1 = trampoline.x - trampoline.w / 2;
   const tx2 = trampoline.x + trampoline.w / 2;
   const seatZoneBottom = SEAT_ZONE_Y + ROWS * SEAT_H + 4;
+
   for (const s of students) {
     if (!s.active || s.seated) continue;
     s.vy += s.gravity;
@@ -514,8 +519,8 @@ function update() {
     const r = 6 * s.sizeScale;
     if (s.x < r) { s.x = r; s.vx = Math.abs(s.vx); }
     if (s.x > W - r) { s.x = W - r; s.vx = -Math.abs(s.vx); }
-    if (s.y - r <= seatZoneBottom && s.vy < 0) {
-      const seat = findNearestEmptySeat(s.x, s.y);
+    if (s.y - r <= seatZoneBottom && s.vy < cfg.seatVyMax) {
+      const seat = findNearestEmptySeat(s.x, s.y, cfg.seatMaxDist);
       if (seat) {
         seat.occupied = true;
         seat.student = s;
@@ -534,8 +539,7 @@ function update() {
       const bounce = s.bouncePower + trampoline.bounceBoost * 3;
       s.vy = -bounce;
       s.y = ORGAN_Y - r;
-      const hitPos = (s.x - trampoline.x) / (trampoline.w / 2);
-      s.vx += hitPos * 1.2;
+      s.vx += ((s.x - trampoline.x) / (trampoline.w / 2)) * cfg.hitVxMult;
       s.vx = Math.max(-4, Math.min(4, s.vx));
       s.legPhase = 0;
       playSE('bounce');
@@ -543,54 +547,132 @@ function update() {
     if (s.y > H + 30) {
       s.x = 20 + Math.random() * (W - 40);
       s.y = SPAWN_Y + Math.random() * 40;
-      s.vx = (Math.random() - 0.5) * 2;
+      s.vx = (Math.random() - 0.5) * cfg.spawnVx;
       s.vy = 0;
       s.rotation = 0;
     }
   }
+
+  // HARD: seated students occasionally jump out
+  if (cfg.unseatInterval > 0 && seatedCount > 5 && !cleared) {
+    unseatTimer++;
+    if (unseatTimer >= cfg.unseatInterval) {
+      unseatTimer = 0;
+      unseatStudent();
+    }
+  }
+
   if (seatedCount > 0 && frame % 90 === 0) {
     const seated = students.filter(s => s.seated);
-    const s = seated[Math.floor(Math.random() * seated.length)];
-    const seat = seats.find(st => st.student === s);
-    if (seat) spawnNote(seat, s);
+    if (seated.length > 0) {
+      const s = seated[Math.floor(Math.random() * seated.length)];
+      const seat = seats.find(st => st.student === s);
+      if (seat) spawnNote(seat, s);
+    }
   }
+
   for (const n of notes) {
     if (!n.alive) continue;
     n.y += n.vy;
     n.age++;
-    if (n.y >= ORGAN_Y - 2 && n.y <= ORGAN_Y + 8 &&
-        n.x >= tx1 - 2 && n.x <= tx2 + 2) {
+    if (n.y >= ORGAN_Y - 2 && n.y <= ORGAN_Y + 8 && n.x >= tx1 - 2 && n.x <= tx2 + 2) {
       n.alive = false;
       playSE('item');
       if (n.type === 'speed') trampoline.speedBoost = Math.min(1, trampoline.speedBoost + 0.5);
       else if (n.type === 'bounce') trampoline.bounceBoost = Math.min(1, trampoline.bounceBoost + 0.5);
-      else if (n.type === 'wide') trampoline.w = Math.min(80, trampoline.w + 10);
+      else if (n.type === 'wide') trampoline.w = Math.min(cfg.trampolineWMax, trampoline.w + 10);
     }
     if (n.y > H + 10) n.alive = false;
   }
   notes = notes.filter(n => n.alive);
 }
 
+// === TITLE SCREEN ===
+
+const BTN_Y = 170;
+const BTN_W = 130, BTN_H = 40, BTN_GAP = 20;
+const BTN_EASY_X = W / 2 - BTN_W - BTN_GAP / 2;
+const BTN_HARD_X = W / 2 + BTN_GAP / 2;
+
+function drawTitle() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // title creatures walking around
+  const phase = frame * 0.05;
+  for (let i = 0; i < 8; i++) {
+    const cx = 30 + i * 45 + Math.sin(phase + i * 2) * 15;
+    const cy = 80 + Math.sin(phase * 0.7 + i) * 10;
+    const hue = i * 45;
+    const [r, g, b] = hslToRgb(hue, 25, 65);
+    drawCreature(cx, cy, phase * 4 + i, Math.sin(phase + i) * 0.2, `rgb(${r},${g},${b})`, 0.8);
+  }
+
+  ctx.save();
+  ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('5\u672C\u8DB3\u306E\u3044\u304D\u3082\u306E', W / 2, 30);
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillStyle = '#aaa';
+  ctx.fillText('\u30C8\u30E9\u30F3\u30DD\u30EA\u30F3', W / 2, 52);
+
+  // mode buttons
+  const modes = [
+    { key: 'easy', x: BTN_EASY_X, label: '\u539F\u4F5C\u7248', sub: 'EASY', color: '#4a6' },
+    { key: 'hard', x: BTN_HARD_X, label: '\u6620\u753B\u7248', sub: 'HARD', color: '#a44' }
+  ];
+
+  for (const m of modes) {
+    const hover = titleHover === m.key;
+    ctx.fillStyle = hover ? m.color : '#222';
+    ctx.strokeStyle = m.color;
+    ctx.lineWidth = hover ? 2 : 1;
+    ctx.beginPath();
+    ctx.roundRect(m.x, BTN_Y, BTN_W, BTN_H, 4);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(m.label, m.x + BTN_W / 2, BTN_Y + 15);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = hover ? '#fff' : '#888';
+    ctx.fillText(m.sub, m.x + BTN_W / 2, BTN_Y + 30);
+  }
+
+  // description
+  ctx.font = '9px sans-serif';
+  ctx.fillStyle = '#666';
+  ctx.fillText('\u539F\u4F5C\u7248: \u304A\u624B\u8EFD\u306B\u904A\u3079\u308B', W / 2, BTN_Y + BTN_H + 18);
+  ctx.fillText('\u6620\u753B\u7248: \u751F\u5F92\u304C\u5E2D\u304B\u3089\u98DB\u3073\u51FA\u3059\u3001\u7740\u5E2D\u5224\u5B9A\u304D\u3073\u3057\u3081', W / 2, BTN_Y + BTN_H + 32);
+
+  ctx.font = '8px sans-serif';
+  ctx.fillStyle = '#555';
+  ctx.fillText('click to select / 1: \u539F\u4F5C\u7248  2: \u6620\u753B\u7248', W / 2, H - 15);
+  ctx.restore();
+}
+
 function draw() {
+  if (gameState === 'title') {
+    drawTitle();
+    document.getElementById('hud').textContent = '';
+    return;
+  }
+
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
   drawSeatZone();
   drawOrgan();
-  if (!cleared) {
-    for (const n of notes) drawNote(n);
-  }
+  if (!cleared) { for (const n of notes) drawNote(n); }
   for (const s of students) {
-    if (s.active && !s.seated) {
-      drawCreature(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
-    }
+    if (s.active && !s.seated) drawCreature(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
   }
   if (!cleared) drawPowerUps();
   if (cleared) {
     drawRipples();
     drawCelebNotes();
-    if (clearPhase > 30) {
-      drawTeacher(teacherX, ORGAN_Y - 6, clearPhase > 150);
-    }
+    if (clearPhase > 30) drawTeacher(teacherX, ORGAN_Y - 6, clearPhase > 150);
     if (clearPhase > 90 && clearPhase < 300) {
       ctx.save();
       const a = clearPhase < 110 ? (clearPhase - 90) / 20 : clearPhase > 270 ? (300 - clearPhase) / 30 : 1;
@@ -600,48 +682,99 @@ function draw() {
     }
     if (canRestart) {
       ctx.save();
-      ctx.fillStyle = '#fff';
-      ctx.font = '8px sans-serif';
-      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
       ctx.globalAlpha = 0.5 + Math.sin(frame * 0.08) * 0.3;
       ctx.fillText('click / enter to play again', W / 2, H / 2 + 50);
       ctx.restore();
     }
   }
+
+  // mode indicator
+  ctx.save();
+  ctx.font = '7px monospace'; ctx.textAlign = 'right';
+  ctx.fillStyle = cfg === MODES.hard ? '#a44' : '#4a6';
+  ctx.fillText(cfg.name, W - 4, H - 2);
+  ctx.restore();
+
   document.getElementById('hud').textContent = cleared
-    ? (canRestart ? 'ALL SEATED!' : 'ALL SEATED!')
+    ? 'ALL SEATED!'
     : `SEATED: ${seatedCount} / ${TOTAL}`;
 }
 
 function loop() { update(); draw(); requestAnimationFrame(loop); }
 
-canvas.addEventListener('click', () => { initAudio(); }, { once: true });
-document.addEventListener('keydown', () => { initAudio(); }, { once: true });
-canvas.addEventListener('touchstart', () => { initAudio(); }, { once: true });
+// === INPUT ===
+
+function getTitleButton(mx, my) {
+  if (my >= BTN_Y && my <= BTN_Y + BTN_H) {
+    if (mx >= BTN_EASY_X && mx <= BTN_EASY_X + BTN_W) return 'easy';
+    if (mx >= BTN_HARD_X && mx <= BTN_HARD_X + BTN_W) return 'hard';
+  }
+  return null;
+}
 
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
-  mouseX = (e.clientX - rect.left) / SCALE;
+  const mx = (e.clientX - rect.left) / SCALE;
+  const my = (e.clientY - rect.top) / SCALE;
+  if (gameState === 'title') {
+    titleHover = getTitleButton(mx, my);
+    canvas.style.cursor = titleHover ? 'pointer' : 'default';
+  } else {
+    mouseX = mx;
+    canvas.style.cursor = 'none';
+  }
 });
+
+canvas.addEventListener('click', e => {
+  initAudio();
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / SCALE;
+  const my = (e.clientY - rect.top) / SCALE;
+  if (gameState === 'title') {
+    const btn = getTitleButton(mx, my);
+    if (btn) startGame(btn);
+  } else if (canRestart) {
+    gameState = 'title';
+    canvas.style.cursor = 'default';
+  }
+});
+
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   mouseX = (e.touches[0].clientX - rect.left) / SCALE;
 }, { passive: false });
+
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
+  initAudio();
   const rect = canvas.getBoundingClientRect();
-  mouseX = (e.touches[0].clientX - rect.left) / SCALE;
-  if (canRestart) restart();
+  const mx = (e.touches[0].clientX - rect.left) / SCALE;
+  const my = (e.touches[0].clientY - rect.top) / SCALE;
+  if (gameState === 'title') {
+    const btn = getTitleButton(mx, my);
+    if (btn) startGame(btn);
+  } else {
+    mouseX = mx;
+    if (canRestart) { gameState = 'title'; canvas.style.cursor = 'default'; }
+  }
 }, { passive: false });
+
 document.addEventListener('keydown', e => {
+  initAudio();
   keys[e.key] = true;
-  if (canRestart && (e.key === ' ' || e.key === 'Enter')) restart();
+  if (gameState === 'title') {
+    if (e.key === '1') startGame('easy');
+    if (e.key === '2') startGame('hard');
+  } else if (canRestart && (e.key === ' ' || e.key === 'Enter')) {
+    gameState = 'title';
+    canvas.style.cursor = 'default';
+  }
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
-canvas.addEventListener('click', () => { if (canRestart) restart(); });
 
-restart();
+document.getElementById('info').textContent = '1: \u539F\u4F5C\u7248  2: \u6620\u753B\u7248';
 loop();
 </script>
 </body>
