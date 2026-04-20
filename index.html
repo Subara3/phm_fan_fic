@@ -96,19 +96,30 @@ let unseatTimer = 0;
 const trampoline = { x: W / 2, w: 50, speedBoost: 0, bounceBoost: 0 };
 
 let audioCtx = null;
+const seCooldown = {};
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
-function playSE(type) {
-  if (!audioCtx) return;
-  const t = audioCtx.currentTime;
+function makeGain(vol, dur) {
   const g = audioCtx.createGain();
   g.connect(audioCtx.destination);
+  const t = audioCtx.currentTime;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  return { g, t };
+}
+
+function playSE(type) {
+  if (!audioCtx) return;
+  const cd = { bounce: 4, seat: 3, item: 2 };
+  if (cd[type] && seCooldown[type] && frame - seCooldown[type] < cd[type]) return;
+  seCooldown[type] = frame;
+
+  const t = audioCtx.currentTime;
   if (type === 'bounce') {
-    g.gain.setValueAtTime(0.12, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    const { g } = makeGain(0.12, 0.15);
     const o = audioCtx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(600, t);
@@ -120,15 +131,15 @@ function playSE(type) {
       const o = audioCtx.createOscillator();
       o.type = 'sine'; o.frequency.value = freq;
       const sg = audioCtx.createGain();
+      sg.connect(audioCtx.destination);
       sg.gain.setValueAtTime(0, t + i * 0.06);
       sg.gain.linearRampToValueAtTime(0.08, t + i * 0.06 + 0.02);
       sg.gain.exponentialRampToValueAtTime(0.001, t + i * 0.06 + 0.2);
-      o.connect(sg); sg.connect(audioCtx.destination);
+      o.connect(sg);
       o.start(t + i * 0.06); o.stop(t + i * 0.06 + 0.2);
     });
   } else if (type === 'item') {
-    g.gain.setValueAtTime(0.1, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    const { g } = makeGain(0.1, 0.2);
     const o = audioCtx.createOscillator();
     o.type = 'triangle';
     o.frequency.setValueAtTime(880, t);
@@ -139,11 +150,12 @@ function playSE(type) {
       const o = audioCtx.createOscillator();
       o.type = 'sine';
       const sg = audioCtx.createGain();
+      sg.connect(audioCtx.destination);
       sg.gain.setValueAtTime(0, t + i * 0.12);
       sg.gain.linearRampToValueAtTime(0.1, t + i * 0.12 + 0.03);
       sg.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.5);
       o.frequency.value = freq;
-      o.connect(sg); sg.connect(audioCtx.destination);
+      o.connect(sg);
       o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.5);
     });
   } else if (type === 'organ') {
@@ -151,22 +163,22 @@ function playSE(type) {
       const o = audioCtx.createOscillator(); o.type = 'sine';
       const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * 2;
       const sg = audioCtx.createGain();
+      sg.connect(audioCtx.destination);
       sg.gain.setValueAtTime(0, t + i * 0.25);
       sg.gain.linearRampToValueAtTime(0.06, t + i * 0.25 + 0.05);
       sg.gain.exponentialRampToValueAtTime(0.001, t + i * 0.25 + 0.4);
       const sg2 = audioCtx.createGain();
+      sg2.connect(audioCtx.destination);
       sg2.gain.setValueAtTime(0, t + i * 0.25);
       sg2.gain.linearRampToValueAtTime(0.02, t + i * 0.25 + 0.05);
       sg2.gain.exponentialRampToValueAtTime(0.001, t + i * 0.25 + 0.35);
       o.frequency.value = freq;
-      o.connect(sg); sg.connect(audioCtx.destination);
-      o2.connect(sg2); sg2.connect(audioCtx.destination);
+      o.connect(sg); o2.connect(sg2);
       o.start(t + i * 0.25); o.stop(t + i * 0.25 + 0.4);
       o2.start(t + i * 0.25); o2.stop(t + i * 0.25 + 0.35);
     });
   } else if (type === 'unseat') {
-    g.gain.setValueAtTime(0.08, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    const { g } = makeGain(0.08, 0.2);
     const o = audioCtx.createOscillator();
     o.type = 'square';
     o.frequency.setValueAtTime(400, t);
@@ -238,7 +250,7 @@ function spawnAll() {
   }
 }
 
-function spawnNote(seat, eridian) {
+function spawnNote(seat) {
   const def = NOTE_DEFS[Math.floor(Math.random() * NOTE_DEFS.length)];
   notes.push({
     x: seat.x, y: seat.y + 10,
@@ -579,7 +591,7 @@ function update() {
       if (seated.length > 0) {
         const s = seated[Math.floor(Math.random() * seated.length)];
         const seat = seats.find(st => st.eridian === s);
-        if (seat) spawnNote(seat, s);
+        if (seat) spawnNote(seat);
       }
     }
   }
@@ -730,8 +742,8 @@ const isTouch = 'ontouchstart' in window;
 
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
-  const mx = (e.clientX - rect.left) / SCALE;
-  const my = (e.clientY - rect.top) / SCALE;
+  const mx = (e.clientX - rect.left - canvas.clientLeft) / SCALE;
+  const my = (e.clientY - rect.top - canvas.clientTop) / SCALE;
   if (gameState === 'title') {
     titleHover = getTitleButton(mx, my);
     canvas.style.cursor = titleHover ? 'pointer' : 'default';
@@ -744,34 +756,35 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('click', e => {
   initAudio();
   const rect = canvas.getBoundingClientRect();
-  const mx = (e.clientX - rect.left) / SCALE;
-  const my = (e.clientY - rect.top) / SCALE;
+  const mx = (e.clientX - rect.left - canvas.clientLeft) / SCALE;
+  const my = (e.clientY - rect.top - canvas.clientTop) / SCALE;
   if (gameState === 'title') {
     const btn = getTitleButton(mx, my);
     if (btn) startGame(btn);
   } else if (canRestart) {
     gameState = 'title';
+    keys = {};
   }
 });
 
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  mouseX = (e.touches[0].clientX - rect.left) / SCALE;
+  mouseX = (e.touches[0].clientX - rect.left - canvas.clientLeft) / SCALE;
 }, { passive: false });
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   initAudio();
   const rect = canvas.getBoundingClientRect();
-  const mx = (e.touches[0].clientX - rect.left) / SCALE;
-  const my = (e.touches[0].clientY - rect.top) / SCALE;
+  const mx = (e.touches[0].clientX - rect.left - canvas.clientLeft) / SCALE;
+  const my = (e.touches[0].clientY - rect.top - canvas.clientTop) / SCALE;
   if (gameState === 'title') {
     const btn = getTitleButton(mx, my);
     if (btn) startGame(btn);
   } else {
     mouseX = mx;
-    if (canRestart) gameState = 'title';
+    if (canRestart) { gameState = 'title'; keys = {}; }
   }
 }, { passive: false });
 
@@ -783,6 +796,7 @@ document.addEventListener('keydown', e => {
     if (e.key === '2') startGame('hard');
   } else if (canRestart && (e.key === ' ' || e.key === 'Enter')) {
     gameState = 'title';
+    keys = {};
     canvas.style.cursor = 'default';
   }
 });
