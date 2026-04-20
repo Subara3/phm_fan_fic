@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Everyone, Take Your Seats! - Project Hail Mary Fan Fiction</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
-canvas { border: 2px solid #444; cursor: none; }
-.info { color: #888; font-size: 13px; margin-top: 6px; }
+html, body { height: 100%; overflow: hidden; touch-action: none; }
+body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { border: 2px solid #444; touch-action: none; }
+.info { color: #888; font-size: 13px; margin-top: 6px; text-align: center; padding: 0 10px; }
 .hud { color: #fff; font-family: monospace; font-size: 16px; margin-bottom: 4px; letter-spacing: 1px; }
 </style>
 </head>
@@ -23,9 +24,14 @@ const W = 400, H = 300;
 const PIX = 2;
 canvas.width = W * PIX;
 canvas.height = H * PIX;
-const SCALE = Math.min((window.innerWidth - 40) / W, (window.innerHeight - 100) / H, 3);
-canvas.style.width = (W * SCALE) + 'px';
-canvas.style.height = (H * SCALE) + 'px';
+let SCALE = 1;
+function resizeCanvas() {
+  SCALE = Math.min((window.innerWidth - 20) / W, (window.innerHeight - 80) / H, 3);
+  canvas.style.width = (W * SCALE) + 'px';
+  canvas.style.height = (H * SCALE) + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 ctx.scale(PIX, PIX);
 
 const TOTAL = 30;
@@ -280,7 +286,7 @@ function startGame(modeKey) {
   generateEridians();
   initSeats();
   spawnAll();
-  document.getElementById('info').textContent = '\u2190 \u2192 or mouse to move organ';
+  document.getElementById('info').textContent = isTouch ? 'touch & drag to move organ' : '\u2190 \u2192 or mouse to move organ';
 }
 
 function drawEridian(x, y, phase, rot, color, scale) {
@@ -720,6 +726,8 @@ function getTitleButton(mx, my) {
   return null;
 }
 
+const isTouch = 'ontouchstart' in window;
+
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   const mx = (e.clientX - rect.left) / SCALE;
@@ -729,7 +737,7 @@ canvas.addEventListener('mousemove', e => {
     canvas.style.cursor = titleHover ? 'pointer' : 'default';
   } else {
     mouseX = mx;
-    canvas.style.cursor = 'none';
+    if (!isTouch) canvas.style.cursor = 'none';
   }
 });
 
@@ -743,7 +751,6 @@ canvas.addEventListener('click', e => {
     if (btn) startGame(btn);
   } else if (canRestart) {
     gameState = 'title';
-    canvas.style.cursor = 'default';
   }
 });
 
@@ -764,7 +771,7 @@ canvas.addEventListener('touchstart', e => {
     if (btn) startGame(btn);
   } else {
     mouseX = mx;
-    if (canRestart) { gameState = 'title'; canvas.style.cursor = 'default'; }
+    if (canRestart) gameState = 'title';
   }
 }, { passive: false });
 
@@ -781,7 +788,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
 
-document.getElementById('info').textContent = '1: Novel  2: Movie';
+document.getElementById('info').textContent = isTouch ? 'tap to select mode' : '1: Novel  2: Movie';
 loop();
 </script>
 </body>
