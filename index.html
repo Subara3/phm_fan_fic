@@ -34,27 +34,43 @@ const SPAWN_Y = 100;
 
 let students = [];
 let seats = [];
+let notes = [];
 let seatedCount = 0;
 let frame = 0;
 let cleared = false;
 let mouseX = W / 2;
 let keys = {};
 
-const trampoline = { x: W / 2, w: 50 };
+const trampoline = { x: W / 2, w: 50, speedBoost: 0, bounceBoost: 0 };
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
 
 function generateStudents() {
   students = [];
   for (let i = 0; i < TOTAL; i++) {
     const weight = 0.3 + Math.random() * 0.7;
     const sizeScale = 0.6 + weight * 0.5;
-    const brightness = Math.round(255 - weight * 120);
+    const hue = Math.random() * 360;
+    const sat = 15 + Math.random() * 25;
+    const lit = 75 - weight * 25;
+    const [r, g, b] = hslToRgb(hue, sat, lit);
     students.push({
       weight,
       sizeScale,
-      color: `rgb(${brightness},${brightness},${brightness})`,
+      color: `rgb(${r},${g},${b})`,
+      noteColor: `rgb(${Math.min(255, r + 40)},${Math.min(255, g + 40)},${Math.min(255, b + 40)})`,
+      hue,
       gravity: 0.05 + weight * 0.06,
-      bouncePower: 7.0 - weight * 2.0,
+      bouncePower: 8.5 - weight * 1.5,
       seated: false,
+      seatTime: 0,
+      noteDropped: false,
       x: 0, y: 0, vx: 0, vy: 0,
       legPhase: Math.random() * 6,
       rotation: 0,
@@ -89,11 +105,29 @@ function spawnAll() {
   }
 }
 
+function spawnNote(seat, student) {
+  const types = ['speed', 'bounce', 'wide'];
+  const type = types[Math.floor(Math.random() * types.length)];
+  notes.push({
+    x: seat.x,
+    y: seat.y + 10,
+    vy: 0.6 + Math.random() * 0.4,
+    type,
+    color: student.noteColor,
+    alive: true,
+    age: 0
+  });
+}
+
 function restart() {
   generateStudents();
   initSeats();
+  notes = [];
   seatedCount = 0;
   cleared = false;
+  trampoline.speedBoost = 0;
+  trampoline.bounceBoost = 0;
+  trampoline.w = 50;
   spawnAll();
 }
 
@@ -138,7 +172,6 @@ function drawSeatedCreature(x, y, color, scale) {
   ctx.fillStyle = '#000';
   ctx.fillRect(1, -2, 2, 2);
 
-  // legs dangling down, still
   const legAngles = [-1.8, -0.9, 0, 0.9, 1.8];
   for (let i = 0; i < 5; i++) {
     const lx = Math.round(Math.sin(legAngles[i]) * 5);
@@ -149,16 +182,27 @@ function drawSeatedCreature(x, y, color, scale) {
   ctx.restore();
 }
 
+function drawNote(note) {
+  const x = Math.round(note.x);
+  const y = Math.round(note.y);
+  const blink = Math.sin(note.age * 0.15) > 0;
+  if (!blink) return;
+
+  ctx.fillStyle = note.color;
+  // note shape: ♪
+  ctx.fillRect(x, y - 4, 1, 6);
+  ctx.fillRect(x - 2, y + 1, 3, 2);
+  ctx.fillRect(x + 1, y - 4, 3, 1);
+  ctx.fillRect(x + 3, y - 3, 1, 2);
+}
+
 function drawSeatZone() {
-  // background
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(0, 0, W, SEAT_ZONE_Y + ROWS * SEAT_H + 4);
 
-  // divider line
   ctx.fillStyle = '#333';
   ctx.fillRect(0, SEAT_ZONE_Y + ROWS * SEAT_H + 3, W, 1);
 
-  // seats
   for (const seat of seats) {
     if (seat.occupied && seat.student) {
       drawSeatedCreature(seat.x, seat.y, seat.student.color, seat.student.sizeScale);
@@ -177,11 +221,32 @@ function drawTrampoline() {
   ctx.fillStyle = '#888';
   ctx.fillRect(tx + 2, ty + 3, 2, 5);
   ctx.fillRect(tx + trampoline.w - 4, ty + 3, 2, 5);
-  ctx.fillStyle = '#fff';
+
+  const hasBoost = trampoline.bounceBoost > 0 || trampoline.speedBoost > 0;
+  ctx.fillStyle = hasBoost ? '#ddf' : '#fff';
   ctx.fillRect(tx, ty, trampoline.w, 3);
   ctx.fillStyle = '#888';
   for (let i = 0; i < trampoline.w; i += 4) {
     ctx.fillRect(tx + i, ty + 1, 2, 1);
+  }
+}
+
+function drawPowerUps() {
+  const y = H - 8;
+  ctx.font = '7px monospace';
+  ctx.textAlign = 'left';
+  if (trampoline.bounceBoost > 0) {
+    ctx.fillStyle = '#8f8';
+    ctx.fillText('BOUNCE+', 4, y);
+  }
+  if (trampoline.speedBoost > 0) {
+    ctx.fillStyle = '#88f';
+    ctx.fillText('SPEED+', trampoline.bounceBoost > 0 ? 52 : 4, y);
+  }
+  if (trampoline.w > 50) {
+    ctx.fillStyle = '#f88';
+    const xOff = (trampoline.bounceBoost > 0 ? 48 : 0) + (trampoline.speedBoost > 0 ? 48 : 0);
+    ctx.fillText('WIDE+', 4 + xOff, y);
   }
 }
 
@@ -200,15 +265,22 @@ function update() {
   frame++;
   if (cleared) return;
 
-  if (keys['ArrowLeft'] || keys['a']) mouseX = trampoline.x - 5;
-  if (keys['ArrowRight'] || keys['d']) mouseX = trampoline.x + 5;
-  trampoline.x += (mouseX - trampoline.x) * 0.25;
+  // decay power-ups
+  if (trampoline.speedBoost > 0) trampoline.speedBoost -= 0.003;
+  if (trampoline.bounceBoost > 0) trampoline.bounceBoost -= 0.003;
+  if (trampoline.w > 50) trampoline.w = Math.max(50, trampoline.w - 0.02);
+
+  const baseSpeed = 5 + trampoline.speedBoost * 8;
+  if (keys['ArrowLeft'] || keys['a']) mouseX = trampoline.x - baseSpeed;
+  if (keys['ArrowRight'] || keys['d']) mouseX = trampoline.x + baseSpeed;
+  trampoline.x += (mouseX - trampoline.x) * (0.25 + trampoline.speedBoost * 0.15);
   trampoline.x = Math.max(trampoline.w / 2, Math.min(W - trampoline.w / 2, trampoline.x));
 
   const tx1 = trampoline.x - trampoline.w / 2;
   const tx2 = trampoline.x + trampoline.w / 2;
   const seatZoneBottom = SEAT_ZONE_Y + ROWS * SEAT_H + 4;
 
+  // update students
   for (const s of students) {
     if (!s.active || s.seated) continue;
 
@@ -220,11 +292,9 @@ function update() {
 
     const r = 6 * s.sizeScale;
 
-    // wall bounce
     if (s.x < r) { s.x = r; s.vx = Math.abs(s.vx); }
     if (s.x > W - r) { s.x = W - r; s.vx = -Math.abs(s.vx); }
 
-    // seat zone collision
     if (s.y - r <= seatZoneBottom && s.vy < 0) {
       const seat = findNearestEmptySeat(s.x, s.y);
       if (seat) {
@@ -232,21 +302,21 @@ function update() {
         seat.student = s;
         s.seated = true;
         s.active = false;
+        s.seatTime = frame;
         seatedCount++;
         if (seatedCount >= TOTAL) cleared = true;
         continue;
       }
     }
 
-    // ceiling bounce
     if (s.y < r) { s.y = r; s.vy = Math.abs(s.vy) * 0.3; }
 
-    // trampoline collision
     if (s.vy > 0 &&
         s.y + r >= TRAMPOLINE_Y &&
         s.y + r <= TRAMPOLINE_Y + 14 &&
         s.x >= tx1 - 4 && s.x <= tx2 + 4) {
-      s.vy = -s.bouncePower;
+      const bounce = s.bouncePower + trampoline.bounceBoost * 3;
+      s.vy = -bounce;
       s.y = TRAMPOLINE_Y - r;
       const hitPos = (s.x - trampoline.x) / (trampoline.w / 2);
       s.vx += hitPos * 1.2;
@@ -254,7 +324,6 @@ function update() {
       s.legPhase = 0;
     }
 
-    // fall off screen - respawn
     if (s.y > H + 30) {
       s.x = 20 + Math.random() * (W - 40);
       s.y = SPAWN_Y + Math.random() * 40;
@@ -263,6 +332,34 @@ function update() {
       s.rotation = 0;
     }
   }
+
+  // seated students drop notes after a delay
+  for (const s of students) {
+    if (s.seated && !s.noteDropped && frame - s.seatTime > 60 + Math.random() * 120) {
+      s.noteDropped = true;
+      const seat = seats.find(st => st.student === s);
+      if (seat) spawnNote(seat, s);
+    }
+  }
+
+  // update notes
+  for (const n of notes) {
+    if (!n.alive) continue;
+    n.y += n.vy;
+    n.age++;
+
+    // trampoline catches note
+    if (n.y >= TRAMPOLINE_Y - 2 && n.y <= TRAMPOLINE_Y + 8 &&
+        n.x >= tx1 - 2 && n.x <= tx2 + 2) {
+      n.alive = false;
+      if (n.type === 'speed') trampoline.speedBoost = Math.min(1, trampoline.speedBoost + 0.5);
+      else if (n.type === 'bounce') trampoline.bounceBoost = Math.min(1, trampoline.bounceBoost + 0.5);
+      else if (n.type === 'wide') trampoline.w = Math.min(80, trampoline.w + 10);
+    }
+
+    if (n.y > H + 10) n.alive = false;
+  }
+  notes = notes.filter(n => n.alive);
 }
 
 function draw() {
@@ -272,13 +369,18 @@ function draw() {
   drawSeatZone();
   drawTrampoline();
 
+  for (const n of notes) {
+    drawNote(n);
+  }
+
   for (const s of students) {
     if (s.active && !s.seated) {
       drawCreature(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
     }
   }
 
-  // HUD
+  drawPowerUps();
+
   const hudText = cleared
     ? `ALL SEATED! [click to play again]`
     : `SEATED: ${seatedCount} / ${TOTAL}`;
@@ -300,7 +402,6 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-// input
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   mouseX = (e.clientX - rect.left) / SCALE;
