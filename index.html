@@ -164,7 +164,7 @@ function generateStudents() {
       noteColor: `rgb(${Math.min(255,r+40)},${Math.min(255,g+40)},${Math.min(255,b+40)})`,
       gravity: 0.05 + weight * 0.06,
       bouncePower: 8.5 - weight * 1.5,
-      seated: false, seatTime: 0, noteDropped: false,
+      seated: false, seatTime: 0,
       x: 0, y: 0, vx: 0, vy: 0,
       legPhase: Math.random() * 6,
       rotation: 0, active: false
@@ -201,7 +201,7 @@ function spawnNote(seat, student) {
   const def = NOTE_DEFS[Math.floor(Math.random() * NOTE_DEFS.length)];
   notes.push({
     x: seat.x, y: seat.y + 10,
-    vy: 0.6 + Math.random() * 0.4,
+    vy: 0.3 + Math.random() * 0.2,
     type: def.type, symbol: def.symbol, color: def.color,
     alive: true, age: 0
   });
@@ -275,14 +275,13 @@ function drawSeatedCreature(x, y, color, scale, shake) {
 
 function drawNote(note) {
   if (!note.alive) return;
-  const blink = note.age < 15 || Math.sin(note.age * 0.12) > -0.3;
-  if (!blink) return;
   ctx.save();
   ctx.fillStyle = note.color;
-  ctx.font = 'bold 9px sans-serif';
+  ctx.font = 'bold 12px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(note.symbol, note.x, note.y);
+  const bob = Math.sin(note.age * 0.08) * 1.5;
+  ctx.fillText(note.symbol, note.x + bob, note.y);
   ctx.restore();
 }
 
@@ -549,12 +548,11 @@ function update() {
       s.rotation = 0;
     }
   }
-  for (const s of students) {
-    if (s.seated && !s.noteDropped && frame - s.seatTime > 60 + Math.random() * 120) {
-      s.noteDropped = true;
-      const seat = seats.find(st => st.student === s);
-      if (seat) spawnNote(seat, s);
-    }
+  if (seatedCount > 0 && frame % 90 === 0) {
+    const seated = students.filter(s => s.seated);
+    const s = seated[Math.floor(Math.random() * seated.length)];
+    const seat = seats.find(st => st.student === s);
+    if (seat) spawnNote(seat, s);
   }
   for (const n of notes) {
     if (!n.alive) continue;
