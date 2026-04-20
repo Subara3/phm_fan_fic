@@ -8,47 +8,299 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
 canvas { border: 2px solid #444; image-rendering: pixelated; cursor: none; }
-.info { color: #888; font-family: monospace; font-size: 14px; margin-top: 8px; }
-.title { color: #ccc; font-family: monospace; font-size: 16px; margin-bottom: 8px; }
-.score { color: #fff; font-family: monospace; font-size: 20px; margin-bottom: 4px; }
+.info { color: #888; font-family: monospace; font-size: 13px; margin-top: 6px; }
+.hud { color: #fff; font-family: monospace; font-size: 16px; margin-bottom: 4px; }
 </style>
 </head>
 <body>
-<div class="score" id="scoreDisplay">SCORE: 0</div>
-<canvas id="game" width="320" height="240"></canvas>
+<div class="hud" id="hud">SEATED: 0 / 30</div>
+<canvas id="game" width="400" height="300"></canvas>
 <div class="info">← → or mouse to move trampoline</div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W = 320, H = 240;
-const SCALE = Math.min(
-  (window.innerWidth - 40) / W,
-  (window.innerHeight - 120) / H,
-  3
-);
+const W = 400, H = 300;
+const SCALE = Math.min((window.innerWidth - 40) / W, (window.innerHeight - 100) / H, 3);
 canvas.style.width = (W * SCALE) + 'px';
 canvas.style.height = (H * SCALE) + 'px';
 
-let score = 0;
-let highScore = 0;
-let gameOver = false;
+const TOTAL = 30;
+const COLS = 10, ROWS = 3;
+const SEAT_ZONE_Y = 8;
+const SEAT_W = 14, SEAT_H = 16;
+const SEAT_MARGIN_X = (W - COLS * SEAT_W) / 2;
+const TRAMPOLINE_Y = H - 22;
+const SPAWN_Y = 100;
+
+let students = [];
+let seats = [];
+let seatedCount = 0;
 let frame = 0;
-
-const trampoline = { x: W / 2, y: H - 20, w: 48, h: 6 };
-
-const creature = {
-  x: W / 2, y: H / 4,
-  vx: 0.8, vy: -2,
-  size: 8,
-  gravity: 0.08,
-  alive: true,
-  rotation: 0,
-  legPhase: 0
-};
-
+let cleared = false;
 let mouseX = W / 2;
 let keys = {};
 
+const trampoline = { x: W / 2, w: 50 };
+
+function generateStudents() {
+  students = [];
+  for (let i = 0; i < TOTAL; i++) {
+    const weight = 0.3 + Math.random() * 0.7;
+    const sizeScale = 0.6 + weight * 0.5;
+    const brightness = Math.round(255 - weight * 120);
+    students.push({
+      weight,
+      sizeScale,
+      color: `rgb(${brightness},${brightness},${brightness})`,
+      gravity: 0.05 + weight * 0.06,
+      bouncePower: 7.0 - weight * 2.0,
+      seated: false,
+      x: 0, y: 0, vx: 0, vy: 0,
+      legPhase: Math.random() * 6,
+      rotation: 0,
+      active: false
+    });
+  }
+}
+
+function initSeats() {
+  seats = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      seats.push({
+        x: SEAT_MARGIN_X + c * SEAT_W + SEAT_W / 2,
+        y: SEAT_ZONE_Y + r * SEAT_H + SEAT_H / 2,
+        occupied: false,
+        student: null
+      });
+    }
+  }
+}
+
+function spawnAll() {
+  for (let i = 0; i < TOTAL; i++) {
+    const s = students[i];
+    s.x = 20 + Math.random() * (W - 40);
+    s.y = SPAWN_Y + Math.random() * 80;
+    s.vx = (Math.random() - 0.5) * 2;
+    s.vy = Math.random() * -1;
+    s.rotation = 0;
+    s.active = true;
+  }
+}
+
+function restart() {
+  generateStudents();
+  initSeats();
+  seatedCount = 0;
+  cleared = false;
+  spawnAll();
+}
+
+function drawCreature(x, y, phase, rot, color, scale) {
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.rotate(rot);
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = color;
+  ctx.fillRect(-4, -3, 8, 6);
+  ctx.fillRect(-3, -4, 6, 8);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(1, -2, 2, 2);
+
+  const legAngles = [-2.2, -1.1, 0, 1.1, 2.2];
+  for (let i = 0; i < 5; i++) {
+    const swing = Math.sin(phase + i * 1.3) * 0.4;
+    const angle = legAngles[i] + swing;
+    const lx = Math.round(Math.sin(angle) * 6);
+    const ly = Math.round(Math.cos(angle) * 6);
+    ctx.fillStyle = color;
+    ctx.fillRect(lx - 1, ly + 1, 2, 2);
+    const mx = Math.round(Math.sin(angle) * 3);
+    const my = Math.round(Math.cos(angle) * 3);
+    ctx.fillRect(mx, my + 1, 1, 1);
+  }
+
+  ctx.restore();
+}
+
+function drawSeatedCreature(x, y, color, scale) {
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = color;
+  ctx.fillRect(-4, -3, 8, 6);
+  ctx.fillRect(-3, -4, 6, 8);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(1, -2, 2, 2);
+
+  // legs dangling down, still
+  const legAngles = [-1.8, -0.9, 0, 0.9, 1.8];
+  for (let i = 0; i < 5; i++) {
+    const lx = Math.round(Math.sin(legAngles[i]) * 5);
+    ctx.fillStyle = color;
+    ctx.fillRect(lx - 1, 5, 2, 2);
+  }
+
+  ctx.restore();
+}
+
+function drawSeatZone() {
+  // background
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, W, SEAT_ZONE_Y + ROWS * SEAT_H + 4);
+
+  // divider line
+  ctx.fillStyle = '#333';
+  ctx.fillRect(0, SEAT_ZONE_Y + ROWS * SEAT_H + 3, W, 1);
+
+  // seats
+  for (const seat of seats) {
+    if (seat.occupied && seat.student) {
+      drawSeatedCreature(seat.x, seat.y, seat.student.color, seat.student.sizeScale);
+    } else {
+      ctx.fillStyle = '#222';
+      ctx.fillRect(seat.x - 5, seat.y - 5, 10, 10);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(seat.x - 4, seat.y - 4, 8, 8);
+    }
+  }
+}
+
+function drawTrampoline() {
+  const tx = Math.round(trampoline.x - trampoline.w / 2);
+  const ty = TRAMPOLINE_Y;
+  ctx.fillStyle = '#888';
+  ctx.fillRect(tx + 2, ty + 3, 2, 5);
+  ctx.fillRect(tx + trampoline.w - 4, ty + 3, 2, 5);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(tx, ty, trampoline.w, 3);
+  ctx.fillStyle = '#888';
+  for (let i = 0; i < trampoline.w; i += 4) {
+    ctx.fillRect(tx + i, ty + 1, 2, 1);
+  }
+}
+
+function findNearestEmptySeat(x, y) {
+  let best = null, bestDist = Infinity;
+  for (const seat of seats) {
+    if (seat.occupied) continue;
+    const dx = seat.x - x, dy = seat.y - y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) { bestDist = d; best = seat; }
+  }
+  return best;
+}
+
+function update() {
+  frame++;
+  if (cleared) return;
+
+  if (keys['ArrowLeft'] || keys['a']) mouseX = trampoline.x - 5;
+  if (keys['ArrowRight'] || keys['d']) mouseX = trampoline.x + 5;
+  trampoline.x += (mouseX - trampoline.x) * 0.25;
+  trampoline.x = Math.max(trampoline.w / 2, Math.min(W - trampoline.w / 2, trampoline.x));
+
+  const tx1 = trampoline.x - trampoline.w / 2;
+  const tx2 = trampoline.x + trampoline.w / 2;
+  const seatZoneBottom = SEAT_ZONE_Y + ROWS * SEAT_H + 4;
+
+  for (const s of students) {
+    if (!s.active || s.seated) continue;
+
+    s.vy += s.gravity;
+    s.x += s.vx;
+    s.y += s.vy;
+    s.legPhase += 0.2;
+    s.rotation += s.vx * 0.015;
+
+    const r = 6 * s.sizeScale;
+
+    // wall bounce
+    if (s.x < r) { s.x = r; s.vx = Math.abs(s.vx); }
+    if (s.x > W - r) { s.x = W - r; s.vx = -Math.abs(s.vx); }
+
+    // seat zone collision
+    if (s.y - r <= seatZoneBottom && s.vy < 0) {
+      const seat = findNearestEmptySeat(s.x, s.y);
+      if (seat) {
+        seat.occupied = true;
+        seat.student = s;
+        s.seated = true;
+        s.active = false;
+        seatedCount++;
+        if (seatedCount >= TOTAL) cleared = true;
+        continue;
+      }
+    }
+
+    // ceiling bounce
+    if (s.y < r) { s.y = r; s.vy = Math.abs(s.vy) * 0.3; }
+
+    // trampoline collision
+    if (s.vy > 0 &&
+        s.y + r >= TRAMPOLINE_Y &&
+        s.y + r <= TRAMPOLINE_Y + 14 &&
+        s.x >= tx1 - 4 && s.x <= tx2 + 4) {
+      s.vy = -s.bouncePower;
+      s.y = TRAMPOLINE_Y - r;
+      const hitPos = (s.x - trampoline.x) / (trampoline.w / 2);
+      s.vx += hitPos * 1.2;
+      s.vx = Math.max(-4, Math.min(4, s.vx));
+      s.legPhase = 0;
+    }
+
+    // fall off screen - respawn
+    if (s.y > H + 30) {
+      s.x = 20 + Math.random() * (W - 40);
+      s.y = SPAWN_Y + Math.random() * 40;
+      s.vx = (Math.random() - 0.5) * 2;
+      s.vy = 0;
+      s.rotation = 0;
+    }
+  }
+}
+
+function draw() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  drawSeatZone();
+  drawTrampoline();
+
+  for (const s of students) {
+    if (s.active && !s.seated) {
+      drawCreature(s.x, s.y, s.legPhase, s.rotation, s.color, s.sizeScale);
+    }
+  }
+
+  // HUD
+  const hudText = cleared
+    ? `ALL SEATED! [click to play again]`
+    : `SEATED: ${seatedCount} / ${TOTAL}`;
+  document.getElementById('hud').textContent = hudText;
+
+  if (cleared) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ALL SEATED!', W / 2, H / 2 + 20);
+    ctx.font = '8px monospace';
+    ctx.fillText('click / enter to play again', W / 2, H / 2 + 36);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// input
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   mouseX = (e.clientX - rect.left) / SCALE;
@@ -62,158 +314,16 @@ canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
   mouseX = (e.touches[0].clientX - rect.left) / SCALE;
-  if (gameOver) restart();
+  if (cleared) restart();
 }, { passive: false });
-
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
-  if (gameOver && (e.key === ' ' || e.key === 'Enter')) restart();
+  if (cleared && (e.key === ' ' || e.key === 'Enter')) restart();
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
-canvas.addEventListener('click', () => { if (gameOver) restart(); });
+canvas.addEventListener('click', () => { if (cleared) restart(); });
 
-function restart() {
-  creature.x = W / 2;
-  creature.y = H / 4;
-  creature.vx = (Math.random() > 0.5 ? 1 : -1) * 0.8;
-  creature.vy = -2;
-  creature.alive = true;
-  creature.rotation = 0;
-  gameOver = false;
-  score = 0;
-}
-
-function drawCreature(x, y, phase, rot) {
-  ctx.save();
-  ctx.translate(Math.round(x), Math.round(y));
-  ctx.rotate(rot);
-
-  // body (oval)
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(-4, -3, 8, 6);
-  ctx.fillRect(-3, -4, 6, 8);
-
-  // eye
-  ctx.fillStyle = '#000';
-  ctx.fillRect(1, -2, 2, 2);
-
-  // 5 legs
-  const legAngles = [-2.2, -1.1, 0, 1.1, 2.2];
-  for (let i = 0; i < 5; i++) {
-    const baseAngle = legAngles[i];
-    const swing = Math.sin(phase + i * 1.3) * 0.4;
-    const angle = baseAngle + swing;
-    const lx = Math.round(Math.sin(angle) * 6);
-    const ly = Math.round(Math.cos(angle) * 6);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(lx - 1, ly + 1, 2, 2);
-    // connecting pixel
-    const mx = Math.round(Math.sin(angle) * 3);
-    const my = Math.round(Math.cos(angle) * 3);
-    ctx.fillRect(mx, my + 1, 1, 1);
-  }
-
-  ctx.restore();
-}
-
-function drawTrampoline() {
-  const tx = Math.round(trampoline.x - trampoline.w / 2);
-  const ty = Math.round(trampoline.y);
-  // legs
-  ctx.fillStyle = '#888';
-  ctx.fillRect(tx + 2, ty + 2, 2, 6);
-  ctx.fillRect(tx + trampoline.w - 4, ty + 2, 2, 6);
-  // surface
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(tx, ty, trampoline.w, 3);
-  // bounce pattern
-  ctx.fillStyle = '#888';
-  for (let i = 0; i < trampoline.w; i += 4) {
-    ctx.fillRect(tx + i, ty + 1, 2, 1);
-  }
-}
-
-function update() {
-  frame++;
-
-  // trampoline movement
-  if (keys['ArrowLeft'] || keys['a']) mouseX = trampoline.x - 4;
-  if (keys['ArrowRight'] || keys['d']) mouseX = trampoline.x + 4;
-  trampoline.x += (mouseX - trampoline.x) * 0.3;
-  trampoline.x = Math.max(trampoline.w / 2, Math.min(W - trampoline.w / 2, trampoline.x));
-
-  if (!creature.alive) return;
-
-  // creature physics
-  creature.vy += creature.gravity;
-  creature.x += creature.vx;
-  creature.y += creature.vy;
-  creature.legPhase += 0.15;
-  creature.rotation += creature.vx * 0.02;
-
-  // wall bounce
-  if (creature.x < creature.size) { creature.x = creature.size; creature.vx = Math.abs(creature.vx); }
-  if (creature.x > W - creature.size) { creature.x = W - creature.size; creature.vx = -Math.abs(creature.vx); }
-
-  // ceiling bounce
-  if (creature.y < creature.size) { creature.y = creature.size; creature.vy = Math.abs(creature.vy) * 0.5; }
-
-  // trampoline collision
-  const tx1 = trampoline.x - trampoline.w / 2;
-  const tx2 = trampoline.x + trampoline.w / 2;
-  if (creature.vy > 0 &&
-      creature.y + creature.size >= trampoline.y &&
-      creature.y + creature.size <= trampoline.y + 12 &&
-      creature.x >= tx1 - 4 && creature.x <= tx2 + 4) {
-    creature.vy = -(3.5 + Math.min(score * 0.03, 2));
-    creature.y = trampoline.y - creature.size;
-    // add horizontal influence based on where it hits
-    const hitPos = (creature.x - trampoline.x) / (trampoline.w / 2);
-    creature.vx += hitPos * 0.8;
-    creature.vx = Math.max(-3.5, Math.min(3.5, creature.vx));
-    creature.legPhase = 0;
-    score++;
-  }
-
-  // fall off screen
-  if (creature.y > H + 20) {
-    creature.alive = false;
-    gameOver = true;
-    if (score > highScore) highScore = score;
-  }
-}
-
-function draw() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-
-  drawTrampoline();
-
-  if (creature.alive) {
-    drawCreature(creature.x, creature.y, creature.legPhase, creature.rotation);
-  }
-
-  // score
-  document.getElementById('scoreDisplay').textContent =
-    gameOver ? `GAME OVER  SCORE: ${score}  HI: ${highScore}  [click to retry]` : `SCORE: ${score}`;
-
-  if (gameOver) {
-    ctx.fillStyle = '#fff';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', W / 2, H / 2 - 8);
-    ctx.fillText(`SCORE: ${score}`, W / 2, H / 2 + 8);
-    ctx.font = '8px monospace';
-    ctx.fillText('click / enter to retry', W / 2, H / 2 + 24);
-  }
-}
-
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
-
+restart();
 loop();
 </script>
 </body>
