@@ -38,7 +38,7 @@ const SPAWN_Y = 100;
 
 const MODES = {
   easy: {
-    name: '\u539F\u4F5C\u7248', sub: 'EASY',
+    name: '\u5C0F\u8AAC\u7248', sub: 'EASY',
     gravityBase: 0.05, gravityWeight: 0.06,
     bounceBase: 8.5, bounceWeight: 1.5,
     trampolineW: 50, trampolineWMax: 80,
@@ -620,7 +620,7 @@ function drawTitle() {
 
   // mode buttons
   const modes = [
-    { key: 'easy', x: BTN_EASY_X, label: '\u539F\u4F5C\u7248', sub: 'EASY', color: '#4a6' },
+    { key: 'easy', x: BTN_EASY_X, label: '\u5C0F\u8AAC\u7248', sub: 'EASY', color: '#4a6' },
     { key: 'hard', x: BTN_HARD_X, label: '\u6620\u753B\u7248', sub: 'HARD', color: '#a44' }
   ];
 
@@ -644,12 +644,12 @@ function drawTitle() {
   // description
   ctx.font = '9px sans-serif';
   ctx.fillStyle = '#666';
-  ctx.fillText('\u539F\u4F5C\u7248: \u304A\u624B\u8EFD\u306B\u904A\u3079\u308B', W / 2, BTN_Y + BTN_H + 18);
+  ctx.fillText('\u5C0F\u8AAC\u7248: \u304A\u624B\u8EFD\u306B\u904A\u3079\u308B', W / 2, BTN_Y + BTN_H + 18);
   ctx.fillText('\u6620\u753B\u7248: \u751F\u5F92\u304C\u5E2D\u304B\u3089\u98DB\u3073\u51FA\u3059\u3001\u7740\u5E2D\u5224\u5B9A\u304D\u3073\u3057\u3081', W / 2, BTN_Y + BTN_H + 32);
 
   ctx.font = '8px sans-serif';
   ctx.fillStyle = '#555';
-  ctx.fillText('click to select / 1: \u539F\u4F5C\u7248  2: \u6620\u753B\u7248', W / 2, H - 15);
+  ctx.fillText('click to select / 1: \u5C0F\u8AAC\u7248  2: \u6620\u753B\u7248', W / 2, H - 15);
   ctx.restore();
 }
 
@@ -774,7 +774,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
 
-document.getElementById('info').textContent = '1: \u539F\u4F5C\u7248  2: \u6620\u753B\u7248';
+document.getElementById('info').textContent = '1: \u5C0F\u8AAC\u7248  2: \u6620\u753B\u7248';
 loop();
 </script>
 </body>
