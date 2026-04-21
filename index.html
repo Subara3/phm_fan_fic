@@ -98,7 +98,12 @@ const trampoline = { x: W / 2, w: 50, speedBoost: 0, bounceBoost: 0 };
 let audioCtx = null;
 const seCooldown = {};
 function initAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf; src.connect(audioCtx.destination); src.start();
+  }
   if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 
@@ -112,8 +117,8 @@ function makeGain(vol, dur) {
 }
 
 function playSE(type) {
-  if (!audioCtx) return;
-  const cd = { bounce: 4, seat: 3, item: 2 };
+  if (!audioCtx || audioCtx.state !== 'running') return;
+  const cd = { bounce: 4, seat: 3, item: 2, unseat: 6 };
   if (cd[type] && seCooldown[type] && frame - seCooldown[type] < cd[type]) return;
   seCooldown[type] = frame;
 
@@ -292,6 +297,7 @@ function startGame(modeKey) {
   notes = [];
   seatedCount = 0;
   frame = 0;
+  for (const k in seCooldown) delete seCooldown[k];
   trampoline.speedBoost = 0;
   trampoline.bounceBoost = 0;
   trampoline.w = cfg.trampolineW;
