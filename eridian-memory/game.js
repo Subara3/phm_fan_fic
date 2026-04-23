@@ -342,10 +342,11 @@ const STATE = { IDLE: "idle", WATCH: "watch", INPUT: "input", OVER: "over" };
 const TANK_MAX = 5;
 const MAX_ROUND = 99;  // internal safety cap (effectively endless)
 
-// Game modes
+// Game modes — both refill fuel and both lower difficulty on miss.
+// They differ only in the win condition (maxRound).
 const MODES = {
-  normal:  { tankStart: 5, canRefill: false, growsOnMiss: true,  maxRound: 20   },
-  endless: { tankStart: 3, canRefill: true,  growsOnMiss: false, maxRound: null },
+  normal:  { tankStart: 3, canRefill: true, maxRound: 10   },
+  endless: { tankStart: 3, canRefill: true, maxRound: null },
 };
 let currentMode = localStorage.getItem("erid-mode") || "endless";
 if (!MODES[currentMode]) currentMode = "endless";
@@ -712,14 +713,28 @@ function startGame() {
   setGameState(STATE.IDLE);
   getAudio();
   playStart();
-  setTimeout(nextRound, 420);
+  setTimeout(() => goToRound(1), 420);
+}
+
+function goToRound(n) {
+  // Generate a completely fresh sequence of length n — no accumulation
+  round = n;
+  sequence = [];
+  for (let i = 0; i < round; i++) {
+    sequence.push(Math.floor(Math.random() * 4));
+  }
+  inputIndex = 0;
+  demoIndex = -1;
+  roundEl.textContent = round;
+  playRoundStart();
+  setTimeout(showSequence, 380);
 }
 
 function nextRound() {
   const cfg = modeCfg();
   const cap = cfg.maxRound || MAX_ROUND;
   if (round >= cap) {
-    // Mode cleared (or internal safety cap reached)
+    // Mode cleared
     setGameState(STATE.OVER);
     setPadsEnabled(false);
     setStatus("statusComplete", "win");
@@ -734,13 +749,7 @@ function nextRound() {
     setTimeout(openResultModal, 1500);
     return;
   }
-  round++;
-  sequence.push(Math.floor(Math.random() * 4));
-  inputIndex = 0;
-  demoIndex = -1;
-  roundEl.textContent = round;
-  playRoundStart();
-  setTimeout(showSequence, 380);
+  goToRound(round + 1);
 }
 
 function showSequence() {
@@ -847,7 +856,11 @@ function handleWrongInput(dir) {
   playWrongInput();
   renderProgress();
 
-  setGameState(STATE.OVER);   // blocks further input during interlude
+  // Difficulty drops on any miss (min 1)
+  round = Math.max(1, round - 1);
+  roundEl.textContent = round;
+
+  setGameState(STATE.OVER);
   setPadsEnabled(false);
   setStatus("statusTankLoss", "over", tanks);
 
@@ -856,40 +869,16 @@ function handleWrongInput(dir) {
     emitSadNotes();
   }, 220);
 
-  const cfg = modeCfg();
-
   if (tanks === 0) {
-    if (cfg.canRefill) {
-      // ENDLESS: Rocky helps with thinking gesture + refill
-      setTimeout(doRockyHelp, 1100);
-    } else {
-      // NORMAL: real GAME OVER
-      setStatus("statusOver", "over", round);
-      setTimeout(() => {
-        playGameOver();
-        // best is updated below
-      }, 220);
-      const cleared = Math.max(0, round - 1);
-      if (cleared > best) {
-        best = cleared;
-        localStorage.setItem("erid-memory-best", best);
-        bestEl.textContent = best;
-      }
-      setTimeout(openResultModal, 1800);
-    }
+    // Rocky helps in BOTH modes now — thinking gesture + refill
+    setTimeout(doRockyHelp, 1100);
     return;
   }
 
-  // Tanks remain — branch by mode
+  // Tanks remain — replay at the new (lower) difficulty with a fresh sequence
   setTimeout(() => {
     setPoseTarget("idle");
-    if (cfg.growsOnMiss) {
-      // NORMAL: round advances (sequence + 1)
-      setTimeout(nextRound, 400);
-    } else {
-      // ENDLESS: replay the SAME round
-      setTimeout(replayRound, 400);
-    }
+    setTimeout(() => goToRound(round), 400);
   }, 1500);
 }
 
@@ -904,7 +893,8 @@ function doRockyHelp() {
     refillTanksAnim(() => {
       setTimeout(() => {
         setPoseTarget("idle");
-        setTimeout(replayRound, 400);
+        // Continue at the current (already-lowered) round with a fresh sequence
+        setTimeout(() => goToRound(round), 400);
       }, 420);
     });
   }, 1100);
@@ -926,12 +916,7 @@ function refillTanksAnim(done) {
   fillNext();
 }
 
-function replayRound() {
-  // Re-play the same sequence — round number and length unchanged
-  inputIndex = 0;
-  demoIndex = -1;
-  showSequence();
-}
+// (replayRound removed — sequences are always freshly regenerated via goToRound)
 
 function resetGame() {
   closeResultModal();
