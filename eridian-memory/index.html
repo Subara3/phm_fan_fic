@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>PROJECT HAIL MARY - Eridian Memory</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="starfield"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-main">PROJECT <b>HAIL MARY</b></span>
+    <span class="brand-sub" data-i18n="brandSub">Eridian Memory</span>
+    <span class="brand-mode" data-i18n="modeEndless">ENDLESS</span>
+  </div>
+  <div class="topbar-actions">
+    <button id="menu-btn" class="btn ghost" data-i18n="menu">MENU</button>
+    <label class="speed-label">
+      <span class="speed-text" data-i18n="speed">速度</span>
+      <select id="speed" aria-label="speed">
+        <option value="900" data-i18n="speedSlow">ゆっくり</option>
+        <option value="650" selected data-i18n="speedNormal">ふつう</option>
+        <option value="450" data-i18n="speedFast">はやい</option>
+      </select>
+    </label>
+    <button id="toggle-btn" class="btn primary" data-action="start">START</button>
+  </div>
+</header>
+
+<main class="game-root">
+
+  <section class="rocky-stage" aria-label="ロッキー">
+    <div class="arrow-flash" id="arrow-flash"></div>
+    <svg class="rocky" viewBox="0 0 500 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Rocky the Eridian">
+      <ellipse cx="250" cy="555" rx="180" ry="16" fill="#000" opacity="0.5"/>
+
+      <g class="leg" id="leg-BC" transform="translate(250 250)">
+        <g class="hip">
+          <line x1="0" y1="0" x2="0" y2="55" stroke="#3a2716" stroke-width="12" stroke-linecap="round"/>
+          <g class="knee" transform="translate(0 55)">
+            <line x1="0" y1="0" x2="0" y2="55" stroke="#3a2716" stroke-width="11" stroke-linecap="round"/>
+            <g class="foot" transform="translate(0 55)">
+              <polygon points="-8,-2 -12,8 -4,8" fill="#1f1308"/>
+              <polygon points="0,-2 -3,10 3,10" fill="#1f1308"/>
+              <polygon points="8,-2 12,8 4,8" fill="#1f1308"/>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <g class="leg" id="leg-BL" transform="translate(210 275)">
+        <g class="hip">
+          <line x1="0" y1="0" x2="0" y2="80" stroke="#4a3020" stroke-width="16" stroke-linecap="round"/>
+          <g class="knee" transform="translate(0 80)">
+            <line x1="0" y1="0" x2="0" y2="75" stroke="#4a3020" stroke-width="14" stroke-linecap="round"/>
+            <g class="foot" transform="translate(0 75)">
+              <polygon points="-12,-2 -18,14 -6,12" fill="#231508"/>
+              <polygon points="0,-2 -4,16 4,16" fill="#231508"/>
+              <polygon points="12,-2 18,14 6,12" fill="#231508"/>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <g class="leg" id="leg-BR" transform="translate(290 275)">
+        <g class="hip">
+          <line x1="0" y1="0" x2="0" y2="80" stroke="#4a3020" stroke-width="16" stroke-linecap="round"/>
+          <g class="knee" transform="translate(0 80)">
+            <line x1="0" y1="0" x2="0" y2="75" stroke="#4a3020" stroke-width="14" stroke-linecap="round"/>
+            <g class="foot" transform="translate(0 75)">
+              <polygon points="-12,-2 -18,14 -6,12" fill="#231508"/>
+              <polygon points="0,-2 -4,16 4,16" fill="#231508"/>
+              <polygon points="12,-2 18,14 6,12" fill="#231508"/>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <g class="body" id="body" transform="translate(250 280)">
+        <path d="M -75 40 L -85 -20 L 0 -60 L 85 -20 L 75 40 Z"
+              fill="#5a3e28" stroke="#1a0f07" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M 0 -60 L 0 40
+                 M -85 -20 L 0 0 L 85 -20"
+              stroke="#2a1a0d" stroke-width="2" fill="none" opacity="0.7"/>
+        <circle cx="-40" cy="10" r="3" fill="#2a1a0d"/>
+        <circle cx="35" cy="-5" r="2.5" fill="#2a1a0d"/>
+        <circle cx="-10" cy="25" r="2" fill="#2a1a0d"/>
+        <circle cx="50" cy="20" r="2.5" fill="#2a1a0d"/>
+
+        <!-- 5 breathing pores on top of the carapace itself -->
+        <g fill="#1a0f07">
+          <ellipse cx="-18" cy="-42" rx="2.6" ry="1.4"/>
+          <ellipse cx="-9"  cy="-50" rx="2.6" ry="1.4"/>
+          <ellipse cx="0"   cy="-54" rx="2.6" ry="1.4"/>
+          <ellipse cx="9"   cy="-50" rx="2.6" ry="1.4"/>
+          <ellipse cx="18"  cy="-42" rx="2.6" ry="1.4"/>
+        </g>
+      </g>
+
+      <g class="leg" id="leg-FL" transform="translate(185 320)">
+        <g class="hip">
+          <line x1="0" y1="0" x2="0" y2="85" stroke="#5c3d26" stroke-width="20" stroke-linecap="round"/>
+          <g class="knee" transform="translate(0 85)">
+            <line x1="0" y1="0" x2="0" y2="85" stroke="#5c3d26" stroke-width="17" stroke-linecap="round"/>
+            <g class="foot" transform="translate(0 85)">
+              <polygon points="-14,-2 -22,18 -6,14" fill="#2a1a0d" stroke="#120a04" stroke-width="1.5"/>
+              <polygon points="0,-2 -5,22 5,22"     fill="#2a1a0d" stroke="#120a04" stroke-width="1.5"/>
+              <polygon points="14,-2 22,18 6,14"    fill="#2a1a0d" stroke="#120a04" stroke-width="1.5"/>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <g class="leg" id="leg-FR" transform="translate(315 320)">
+        <g class="hip">
+          <line x1="0" y1="0" x2="0" y2="85" stroke="#5c3d26" stroke-width="20" stroke-linecap="round"/>
+          <g class="knee" transform="translate(0 85)">
+            <line x1="0" y1="0" x2="0" y2="85" stroke="#5c3d26" stroke-width="17" stroke-linecap="round"/>
+            <g class="foot" transform="translate(0 85)">
+              <polygon points="-14,-2 -22,18 -6,14" fill="#2a1a0d" stroke="#120a04" stroke-width="1.5"/>
+              <polygon points="0,-2 -5,22 5,22"     fill="#2a1a0d" stroke="#120a04" stroke-width="1.5"/>
+              <polygon points="14,-2 22,18 6,14"    fill="#2a1a0d" stroke="#120a04" stroke-width="1.5"/>
+            </g>
+          </g>
+        </g>
+      </g>
+    </svg>
+  </section>
+
+  <!-- ========= Simon-style memory game UI ========= -->
+  <section class="memory" aria-label="メモリーゲーム">
+    <div class="status-row">
+      <div class="status-pill" id="status">—</div>
+      <div class="round-pill"><span data-i18n="round">ROUND</span> <span id="round">—</span></div>
+      <div class="round-pill"><span data-i18n="best">BEST</span> <span id="best">0</span></div>
+    </div>
+
+    <div class="tank-row" aria-label="燃料タンク">
+      <span class="tank-label" data-i18n="fuelLabel">燃料</span>
+      <div class="tanks" id="tanks"></div>
+    </div>
+
+    <div class="sequence-progress" id="sequence-progress" aria-label="このラウンドのポーズ数"></div>
+
+    <div class="pad-wrap">
+      <div class="pad-grid">
+        <button class="pad" data-dir="2" aria-label="上">↑</button>
+        <button class="pad" data-dir="0" aria-label="左">←</button>
+        <button class="pad" data-dir="3" aria-label="右">→</button>
+        <button class="pad" data-dir="1" aria-label="下">↓</button>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- ========= Main menu modal ========= -->
+<div class="menu-modal show" id="menu-modal" aria-hidden="false" role="dialog" aria-labelledby="menu-title">
+  <div class="menu-card">
+    <button class="modal-close-x" id="menu-close-x" aria-label="close">×</button>
+    <p class="menu-sub">PROJECT HAIL MARY</p>
+    <h2 class="menu-title" id="menu-title" data-i18n="menuTitle">メインメニュー</h2>
+
+    <div class="menu-section">
+      <div class="menu-section-label" data-i18n="menuLanguage">言語</div>
+      <div class="lang-switch">
+        <button class="lang-btn" data-lang="ja">日本語</button>
+        <button class="lang-btn" data-lang="en">English</button>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <div class="menu-section-label" data-i18n="mode">モード</div>
+      <div class="mode-switch">
+        <button class="mode-btn" data-mode="normal" data-i18n="modeNormal">ふつう</button>
+        <button class="mode-btn" data-mode="endless" data-i18n="modeEndless">エンドレス</button>
+      </div>
+    </div>
+
+    <div class="menu-actions">
+      <button class="btn ghost   menu-action-btn" id="menu-practice" data-i18n="menuPractice">練習する</button>
+      <button class="btn primary menu-action-btn" id="menu-start"    data-i18n="menuStart">本番開始</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========= Result modal ========= -->
+<div class="result-modal" id="result-modal" aria-hidden="true" role="dialog" aria-labelledby="result-title">
+  <div class="result-card" role="document">
+    <p class="result-sub">RESULT</p>
+    <h2 class="result-title" id="result-title" data-i18n="resultTitle">異星間交友の結果</h2>
+
+    <div class="result-stats">
+      <div class="result-stat">
+        <span class="result-stat-label" data-i18n="reachedRound">到達ラウンド</span>
+        <span class="result-stat-value" id="result-round">—</span>
+      </div>
+      <div class="result-stat">
+        <span class="result-stat-label" data-i18n="bestLabel">ベスト</span>
+        <span class="result-stat-value" id="result-best">—</span>
+      </div>
+    </div>
+
+    <div class="result-friendship-label" data-i18n="friendshipLabel">友情レベル</div>
+    <div class="result-friendship" id="result-friendship">★ ☆ ☆ ☆ ☆</div>
+    <p class="result-message" id="result-message"></p>
+
+    <div class="result-actions">
+      <button class="btn ghost"   id="result-close" data-i18n="close">閉じる</button>
+      <button class="btn primary" id="result-retry" data-i18n="retry">もう一度</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
