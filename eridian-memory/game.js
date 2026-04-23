@@ -348,8 +348,8 @@ const MODES = {
   normal:  { tankStart: 3, canRefill: true, maxRound: 10   },
   endless: { tankStart: 3, canRefill: true, maxRound: null },
 };
-let currentMode = localStorage.getItem("erid-mode") || "endless";
-if (!MODES[currentMode]) currentMode = "endless";
+let currentMode = localStorage.getItem("erid-mode") || "normal";
+if (!MODES[currentMode]) currentMode = "normal";
 function modeCfg() { return MODES[currentMode]; }
 let gameState = STATE.IDLE;
 let sequence = [];
