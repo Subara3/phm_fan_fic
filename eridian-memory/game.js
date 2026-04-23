@@ -204,7 +204,7 @@ function applyJoints(pose) {
     leg.querySelector(".foot")?.setAttribute("transform", `${footTranslate[key]} rotate(${foot.toFixed(2)})`);
   }
   const [bx, by, br] = pose.body;
-  body.setAttribute("transform", `translate(${BODY_BASE.x + bx} ${BODY_BASE.y + by}) rotate(${br.toFixed(2)})`);
+  body.setAttribute("transform", `translate(${BODY_BASE.x + bx} ${BODY_BASE.y + by + breathPhase}) rotate(${br.toFixed(2)})`);
   if (headEl) headEl.setAttribute("transform", `${headTranslate} rotate(${pose.head.toFixed(2)})`);
 }
 
@@ -218,7 +218,8 @@ const current = clonePose(POSES.idle);
 let tweenFrom = clonePose(current);
 let tweenTarget = clonePose(current);
 let tweenStart = 0;
-let jointRafActive = false;
+let tweening = false;
+let breathPhase = 0;
 
 function setPoseTarget(name, durationMs) {
   const p = POSES[name] || POSES.idle;
@@ -226,28 +227,32 @@ function setPoseTarget(name, durationMs) {
   tweenTarget = clonePose(p);
   tweenMs = (durationMs != null) ? durationMs : (POSE_DURATIONS[name] || 180);
   tweenStart = performance.now();
-  if (!jointRafActive) {
-    jointRafActive = true;
-    requestAnimationFrame(jointRaf);
-  }
+  tweening = true;
 }
-function jointRaf(now) {
-  const x = Math.min(1, (now - tweenStart) / tweenMs);
-  const e = easeOutBack(x);
-  for (const k of JOINT_KEYS) {
-    for (let i = 0; i < 3; i++) {
-      current[k][i] = tweenFrom[k][i] + (tweenTarget[k][i] - tweenFrom[k][i]) * e;
+
+// Unified RAF loop — advances pose tween AND breath oscillation, always renders.
+function masterLoop(now) {
+  if (tweening) {
+    const x = Math.min(1, (now - tweenStart) / tweenMs);
+    const e = easeOutBack(x);
+    for (const k of JOINT_KEYS) {
+      for (let i = 0; i < 3; i++) {
+        current[k][i] = tweenFrom[k][i] + (tweenTarget[k][i] - tweenFrom[k][i]) * e;
+      }
     }
+    for (let i = 0; i < 3; i++) {
+      current.body[i] = tweenFrom.body[i] + (tweenTarget.body[i] - tweenFrom.body[i]) * e;
+    }
+    current.head = tweenFrom.head + (tweenTarget.head - tweenFrom.head) * e;
+    if (x >= 1) tweening = false;
   }
-  for (let i = 0; i < 3; i++) {
-    current.body[i] = tweenFrom.body[i] + (tweenTarget.body[i] - tweenFrom.body[i]) * e;
-  }
-  current.head = tweenFrom.head + (tweenTarget.head - tweenFrom.head) * e;
+  // Breath — ±2px, ~2.6s cycle, subtle idle motion
+  breathPhase = Math.sin(now / 1300) * 2;
   applyJoints(current);
-  if (x < 1) requestAnimationFrame(jointRaf);
-  else jointRafActive = false;
+  requestAnimationFrame(masterLoop);
 }
-applyJoints(current);
+
+requestAnimationFrame(masterLoop);
 
 // ============================================================
 // Input mapping
